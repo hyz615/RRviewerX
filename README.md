@@ -1,5 +1,6 @@
 # RRviewer
 By Yizhou Han
+
 AI 驱动的复习提要生成器（FastAPI + HTML/CSS/JS）。支持：
 - 一次免登录试用（Cookie 控制）
 - Google / Microsoft OAuth 登录
