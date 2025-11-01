@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-cn">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RRviewer - 复习提要</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="assets/styles.css" />
+  <script src="assets/api.js" defer></script>
+  <script src="assets/i18n.js?v=20250915" defer></script>
+  </head>
+  <body class="bg-slate-50 text-slate-900">
+  <script>location.replace('workspace.html');</script>
+    <div class="max-w-3xl mx-auto p-6 mt-10 rounded-xl rr-card">
+      <h1 class="text-xl font-bold mb-4" data-i18n="generate_title">生成复习提要</h1>
+      <div class="flex gap-2 mb-3">
+        <select id="fmt" class="border p-2 rounded">
+          <option value="review_sheet_pro" data-i18n-option="format_review_pro">复习单 Pro</option>
+          <option value="qa" data-i18n-option="format_qa">问答 Q&A</option>
+          <option value="flashcards" data-i18n-option="format_flashcards">闪卡 Flashcards</option>
+        </select>
+  <button id="gen" class="bg-emerald-600 text-white px-4 py-2 rounded" data-i18n="upload_btn">生成</button>
+        <a class="px-4 py-2 rounded border" href="chat.html" data-i18n="to_chat">去聊天</a>
+      </div>
+      <textarea id="src" class="w-full border rounded p-2 h-40" data-i18n-placeholder="input_or_paste" placeholder="输入或粘贴文本..."></textarea>
+      <pre id="out" class="mt-4 text-xs text-slate-600"></pre>
+    </div>
+  <script>
+      const genBtn = document.getElementById('gen');
+      document.getElementById('gen').onclick = async () => {
+        const text = document.getElementById('src').value;
+        const format = document.getElementById('fmt').value;
+        const token = localStorage.getItem('token');
+        const headers = { 'Content-Type':'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const prev = genBtn.textContent;
+        genBtn.disabled = true; genBtn.style.opacity = 0.8; genBtn.innerHTML = `<span class="spinner inline-block mr-2"></span>${window.__i18n__?__i18n__.t('generating'):'生成中...'}`;
+        try {
+          const r = await apiFetch("/generate", {method:'POST', headers, body: JSON.stringify({text, format})});
+          const j = await r.json();
+          document.getElementById('out').textContent = JSON.stringify(j, null, 2);
+          if (j.ok) {
+            sessionStorage.setItem('review', JSON.stringify(j.review_sheet));
+            if (j.id) sessionStorage.setItem('review_id', j.id);
+          }
+        } finally {
+          genBtn.disabled = false; genBtn.style.opacity = 1; genBtn.textContent = prev;
+        }
+      };
+  </script>
+  <footer class="mt-10 py-6 text-center text-xs text-slate-500">©RUR1 INNOVATION & Skyru AI</footer>
+  </body>
+</html>

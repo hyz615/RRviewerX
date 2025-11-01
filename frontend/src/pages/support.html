@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-cn">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RRviewer - 工单</title>
+    <script>
+      // Early theme apply to avoid FOUC
+      (function(){
+        try{
+          var saved = localStorage.getItem('rr_theme');
+          if(!saved){
+            // follow system
+            saved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+          }
+          document.documentElement.setAttribute('data-theme', saved);
+        }catch(e){}
+      })();
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="assets/styles.css?v=20250912" />
+  <script src="assets/i18n.js?v=20250920" defer></script>
+    <script src="assets/api.js" defer></script>
+    <script src="assets/toast.js" defer></script>
+  </head>
+  <body class="bg-slate-50 text-slate-900">
+    <div class="fixed top-0 left-0 right-0 z-10 topbar" id="app-topbar">
+      <div class="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
+  <a href="workspace.html" class="flex items-center"><img src="assets/logo.png" alt="RRviewer" class="brand-logo" /></a>
+        <div class="flex-1 flex items-center justify-center">
+          <div class="flex items-center gap-2 px-2 py-1 rounded-full chip text-xs">
+            <span class="inline-block w-2.5 h-2.5 rounded-full bg-sky-500"></span>
+            <span data-i18n="support_page_title">工单</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 text-sm">
+          <button id="btn-dark" class="px-2 py-1 border border-slate-300 rounded" title="Dark mode">🌙</button>
+          <a href="workspace.html" class="underline text-xs" data-i18n="back">返回工作台</a>
+        </div>
+      </div>
+    </div>
+    <div class="topbar-spacer"></div>
+
+    <div class="max-w-3xl mx-auto p-6">
+  <h1 class="text-xl font-semibold mb-4" data-i18n="support_submit_ticket">提交工单</h1>
+      <div class="rounded-xl rr-card p-5">
+        <div class="mb-3">
+          <label class="block text-sm mb-1" data-i18n="support_subject_label">主题</label>
+          <input id="subject" type="text" class="w-full border rounded px-3 py-2" data-i18n-placeholder="support_subject_placeholder" placeholder="请填写主题" />
+        </div>
+        <div class="mb-3">
+          <label class="block text-sm mb-1" data-i18n="support_content_label">内容</label>
+          <textarea id="content" class="w-full border rounded px-3 py-2 h-40" data-i18n-placeholder="support_content_placeholder" placeholder="请详细描述需求或问题"></textarea>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="btn-submit" class="bg-emerald-600 text-white px-4 py-2 rounded" data-i18n="support_submit_btn">提交</button>
+          <span id="tip-login" class="text-xs text-amber-700 hidden" data-i18n="support_login_tip">请先登录才能提交工单</span>
+        </div>
+      </div>
+
+  <h2 class="text-lg font-semibold mt-8 mb-3" data-i18n="support_my_tickets">我的工单</h2>
+      <div id="my-list" class="rounded-xl rr-card p-5 text-sm"></div>
+    </div>
+
+  <script>
+      function getToken(){ return localStorage.getItem('token'); }
+      function authHeaders(base={}){ const h={...base}; const t=getToken(); if(t) h['Authorization'] = `Bearer ${t}`; return h; }
+      // Dark mode toggle
+      (function(){
+        const htmlEl = document.documentElement;
+        const dmBtn = document.getElementById('btn-dark');
+        function updateDmIcon(){ if(!dmBtn) return; dmBtn.textContent = (htmlEl.getAttribute('data-theme')==='dark') ? '☀️' : '🌙'; }
+        updateDmIcon();
+        if (dmBtn){
+          dmBtn.onclick = function(){
+            const cur = htmlEl.getAttribute('data-theme')==='dark' ? 'light' : 'dark';
+            htmlEl.setAttribute('data-theme', cur);
+            try{ localStorage.setItem('rr_theme', cur); }catch(e){}
+            updateDmIcon();
+          };
+        }
+      })();
+      function renderList(items){
+        const box = document.getElementById('my-list');
+  if(!items || !items.length){ box.innerHTML = `<div class="text-slate-500 text-sm">${window.__i18n__?__i18n__.t('support_none'):'暂无工单'}</div>`; return; }
+        box.innerHTML = items.map(it=>`
+          <div class="border-b py-2">
+            <div class="font-medium">${escapeHtml(it.subject)} <span class="text-xs text-slate-500">#${it.id}</span></div>
+            <div class="mt-1 text-slate-700 whitespace-pre-wrap">${escapeHtml(it.content)}</div>
+            <div class="text-xs text-slate-500 mt-1">${window.__i18n__?__i18n__.t('support_status'):'状态'}：${it.status} · ${window.__i18n__?__i18n__.t('support_time'):'时间'}：${it.created_at}</div>
+          </div>
+        `).join('');
+      }
+      function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
+      async function loadMy(){
+        const r = await apiFetch('/support/my', { headers: authHeaders(), credentials:'include' });
+  if(!r.ok){ document.getElementById('my-list').innerHTML = `<div class="text-slate-500 text-sm">${window.__i18n__?__i18n__.t('support_signin_first'):'请先登录'}</div>`; return; }
+        const j = await r.json(); renderList(j.items||[]);
+      }
+      document.addEventListener('DOMContentLoaded', ()=>{
+        const btn = document.getElementById('btn-submit');
+        const tip = document.getElementById('tip-login');
+        const token = getToken();
+        if(!token){ tip.classList.remove('hidden'); }
+        btn.onclick = async ()=>{
+          if(!getToken()){ alert(window.__i18n__?__i18n__.t('support_signin_first'):'请先登录'); return; }
+          const subject = document.getElementById('subject').value.trim();
+          const content = document.getElementById('content').value.trim();
+          if(!subject || !content){ alert((window.__i18n__?__i18n__.t('support_subject_label'):'主题')+' / '+(window.__i18n__?__i18n__.t('support_content_label'):'内容')+' '+(window.__i18n__?__i18n__.t('required_fields'):'必填')); return; }
+          const prev = btn.textContent; btn.disabled=true; btn.textContent=(window.__i18n__?__i18n__.t('support_reply_sending'):'提交中...');
+          try{
+            const r = await apiFetch('/support/tickets', { method:'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({subject, content}) });
+            const j = await r.json();
+            if(j.ok){
+              document.getElementById('subject').value=''; document.getElementById('content').value='';
+              loadMy();
+              try{ showToast('success', (window.__i18n__?__i18n__.t('support_sent'):'已提交')); }catch(_){ alert((window.__i18n__?__i18n__.t('support_sent'):'已提交')); }
+            } else {
+              alert(j.error || (window.__i18n__?__i18n__.t('support_load_failed'):'提交失败'));
+            }
+          }catch(e){ alert(window.__i18n__?__i18n__.t('support_network_error'):'网络错误'); }
+          finally{ btn.disabled=false; btn.textContent=prev; }
+        };
+        loadMy();
+      });
+    </script>
+    <footer class="mt-10 py-6 text-center text-xs text-slate-500">©RUR1 INNOVATION & Skyru AI</footer>
+  </body>
+</html>

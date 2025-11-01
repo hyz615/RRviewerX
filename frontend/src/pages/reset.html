@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-cn">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>重置密码 - RRviewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="assets/styles.css" />
+    <script src="assets/i18n.js?v=20250915" defer></script>
+    <script src="assets/api.js" defer></script>
+  </head>
+  <body class="bg-slate-50 text-slate-900">
+    <div class="max-w-md mx-auto p-6 mt-20 rounded-xl rr-card">
+      <h1 class="text-xl font-bold mb-4" data-i18n="reset_title">重置密码</h1>
+      <p class="text-xs text-slate-600 mb-3" data-i18n="reset_desc">请输入新密码。</p>
+      <input id="pw1" type="password" class="w-full border rounded px-3 py-2 mb-2" data-i18n-placeholder="reset_new_password_ph" placeholder="新密码 (至少8位，含大小写与数字)" />
+      <input id="pw2" type="password" class="w-full border rounded px-3 py-2 mb-4" data-i18n-placeholder="reset_confirm_password_ph" placeholder="确认新密码" />
+      <button id="btn" class="btn btn-primary px-4 py-2" data-i18n="reset_submit_btn">提交</button>
+      <p id="msg" class="text-xs text-slate-600 mt-3"></p>
+    </div>
+  <script>
+      function getToken(){
+        const h = location.hash || '';
+        const m = h.match(/token=([^&]+)/);
+        return m? decodeURIComponent(m[1]) : '';
+      }
+      document.getElementById('btn').onclick = async ()=>{
+        const a = document.getElementById('pw1').value;
+        const b = document.getElementById('pw2').value;
+        if (!a || a.length < 8){ alert(window.__i18n__?__i18n__.t('reset_pw_too_weak'):'密码至少8位，且包含大小写与数字'); return; }
+        if (a !== b){ alert(window.__i18n__?__i18n__.t('reset_pw_mismatch'):'两次输入不一致'); return; }
+        const token = getToken();
+        if (!token){ alert(window.__i18n__?__i18n__.t('reset_invalid_link'):'链接无效或已过期'); return; }
+  const r = await apiFetch("/auth/reset-password", { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ token, new_password: a }) });
+        const j = await r.json();
+        if (j.ok){
+          document.getElementById('msg').textContent = (window.__i18n__?__i18n__.t('reset_success_redirect'):'重置成功，3 秒后将跳转到登录页...');
+          setTimeout(()=>{ location.href = 'index.html?login=1'; }, 3000);
+        }
+        else {
+          const msg = j.error || '重置失败';
+          document.getElementById('msg').textContent = msg;
+        }
+      };
+    </script>
+  </body>
+</html>

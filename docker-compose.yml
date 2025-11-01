@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: rrviewer-backend
+    environment:
+      - APP_ENV=prod
+      - SECRET_KEY=${SECRET_KEY:-change-me}
+      - ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
+      - OPENAI_API_KEY
+      - DEEPSEEK_API_KEY
+      - LLM_PROVIDER=${LLM_PROVIDER:-mock}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - DATABASE_URL=sqlite:///./rrviewer.db
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rrviewer-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend

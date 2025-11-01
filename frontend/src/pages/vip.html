@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="zh-cn">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RRviewer - VIP</title>
+    <script>
+      (function(){
+        try{
+          var saved = localStorage.getItem('rr_theme');
+          if(!saved){ saved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light'; }
+          document.documentElement.setAttribute('data-theme', saved);
+        }catch(e){}
+      })();
+      window.I18N_NO_FLOAT = true;
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="assets/styles.css?v=20250912" />
+  <script src="assets/api.js" defer></script>
+  <script src="assets/toast.js" defer></script>
+  <script src="assets/i18n.js?v=20250923" defer></script>
+  </head>
+  <body>
+    <!-- Top bar -->
+    <div class="fixed top-0 left-0 right-0 z-10 topbar" id="app-topbar">
+      <div class="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
+        <a href="workspace.html" class="flex items-center"><img src="assets/logo.png" alt="RRviewer" class="brand-logo" /></a>
+        <div class="flex items-center gap-3 text-sm">
+          <a href="workspace.html" class="text-xs underline" data-i18n="back">返回工作台</a>
+          <button id="btn-dark" class="px-2 py-1 border border-slate-300 rounded" title="Dark mode">🌙</button>
+          <div class="flex items-center gap-1 text-xs">
+            <button id="lang-top-zh" type="button" class="px-2 py-1 border border-slate-300 rounded">中文</button>
+            <button id="lang-top-en" type="button" class="px-2 py-1 border border-slate-300 rounded">EN</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="topbar-spacer"></div>
+
+    <main class="max-w-6xl mx-auto p-6">
+      <!-- Hero -->
+      <section class="mb-8 text-center">
+        <h1 class="text-3xl font-extrabold tracking-tight mb-2"><span data-i18n="vip_page_title">VIP 尊享</span></h1>
+        <p class="text-slate-600" data-i18n="vip_page_subtitle">更强大的生成体验与服务</p>
+      </section>
+
+      <!-- Comparison Table -->
+      <section class="rounded-xl rr-card p-6">
+        <h2 class="text-xl font-semibold mb-4" data-i18n="vip_compare_title">版本对比</h2>
+        <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+            <thead>
+              <tr class="text-left border-b">
+        <th class="py-3 pr-3 text-slate-500" data-i18n="vip_col_feature">功能</th>
+                <th class="py-3 px-3 font-semibold" data-i18n="vip_col_free">免费用户</th>
+                <th class="py-3 px-3 font-semibold" data-i18n="vip_col_vip">VIP 用户</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y">
+              <!-- Unlimited generations -->
+              <tr>
+                <td class="py-4 pr-3 font-medium" data-i18n="vip_feature_unlimited">生成次数</td>
+                <td class="py-4 px-3 text-slate-600" data-i18n="vip_feature_unlimited_free">每月有限配额</td>
+                <td class="py-4 px-3">
+                  <span class="inline-flex items-center gap-2 px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span>✓</span>
+                    <span data-i18n="vip_feature_unlimited_vip">无限制</span>
+                  </span>
+                </td>
+              </tr>
+              <!-- Priority support -->
+              <tr>
+                <td class="py-4 pr-3 font-medium" data-i18n="vip_feature_priority">客服工单处理</td>
+                <td class="py-4 px-3 text-slate-600" data-i18n="vip_feature_priority_free">常规队列</td>
+                <td class="py-4 px-3">
+                  <span class="inline-flex items-center gap-2 px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span>✓</span>
+                    <span data-i18n="vip_feature_priority_vip">优先处理</span>
+                  </span>
+                </td>
+              </tr>
+              <!-- Long generation mode -->
+              <tr>
+                <td class="py-4 pr-3 font-medium" data-i18n="vip_feature_long">长生成模式</td>
+                <td class="py-4 px-3 text-slate-600">
+                  <span class="inline-flex items-center gap-2 px-2 py-1 rounded bg-slate-100 text-slate-600 border border-slate-200">—
+                    <span class="sr-only" data-i18n="vip_feature_long_free">不支持</span>
+                  </span>
+                </td>
+                <td class="py-4 px-3">
+                  <span class="inline-flex items-center gap-2 px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span>✓</span>
+                    <span data-i18n="vip_feature_long_vip">支持（更长篇幅、更全面）</span>
+                  </span>
+                </td>
+              </tr>
+              <!-- Smarter mode -->
+              <tr>
+                <td class="py-4 pr-3 font-medium" data-i18n="vip_feature_smart">更智能的生成模式</td>
+                <td class="py-4 px-3 text-slate-600" data-i18n="vip_feature_smart_free">标准</td>
+                <td class="py-4 px-3">
+                  <span class="inline-flex items-center gap-2 px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span>✓</span>
+                    <span data-i18n="vip_feature_smart_vip">高级推理与优化</span>
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+  <!-- Purchase via Stripe (hidden) -->
+  <section id="stripe-cta" class="mt-8 rounded-xl p-6 bg-gradient-to-r from-emerald-500/10 to-emerald-500/5 border border-emerald-200 hidden">
+        <div class="md:flex md:items-center md:justify-between gap-6">
+          <div class="mb-4 md:mb-0">
+            <h3 class="text-lg font-semibold mb-1" data-i18n="vip_cta_title">立即升级为 VIP</h3>
+            <p class="text-slate-600" data-i18n="vip_cta_desc">使用 Stripe 安全支付，支持 30/90/365 天。</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button data-plan="30" class="vip-btn inline-flex items-center gap-2 px-4 py-2 rounded bg-emerald-600 text-white shadow hover:bg-emerald-700" data-i18n="plan30">30 天</button>
+            <button data-plan="90" class="vip-btn inline-flex items-center gap-2 px-4 py-2 rounded bg-emerald-600 text-white shadow hover:bg-emerald-700" data-i18n="plan90">90 天</button>
+            <button data-plan="365" class="vip-btn inline-flex items-center gap-2 px-4 py-2 rounded bg-emerald-600 text-white shadow hover:bg-emerald-700" data-i18n="plan365">365 天</button>
+          </div>
+        </div>
+        <div class="mt-3 text-xs text-slate-500">
+          <span class="mr-2">Sandbox</span>
+          <button data-demo="vip_30" class="demo-btn underline">Demo 30</button>
+          <button data-demo="vip_90" class="demo-btn underline">Demo 90</button>
+          <button data-demo="vip_365" class="demo-btn underline">Demo 365</button>
+        </div>
+      </section>
+
+      <!-- Extend VIP for Free (demo) -->
+      <section id="extend-free" class="mt-8 rounded-xl rr-card p-6">
+        <div class="md:flex md:items-center md:justify-between gap-6">
+          <div class="mb-4 md:mb-0">
+            <h3 class="text-lg font-semibold mb-1" data-i18n="vip_extend_title">Extend VIP for Free</h3>
+            <p class="text-slate-600" data-i18n="vip_extend_desc">Extend by 90 days</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="btn-extend-free" class="inline-flex items-center gap-2 px-4 py-2 rounded bg-emerald-600 text-white shadow hover:bg-emerald-700" data-i18n="vip_extend_btn">Extend 90 days</button>
+          </div>
+        </div>
+  <p id="extend-note" class="mt-2 text-xs text-slate-500"></p>
+      </section>
+
+      <!-- FAQ -->
+      <section class="mt-8 rounded-xl rr-card p-6">
+        <h3 class="text-lg font-semibold mb-4" data-i18n="vip_faq_title">常见问题</h3>
+        <div class="space-y-4 text-sm">
+          <div>
+            <div class="font-medium" data-i18n="vip_faq_1_q">开通后如何生效？</div>
+            <div class="text-slate-600" data-i18n="vip_faq_1_a">我们会在您的账号上标记 VIP，刷新页面即可生效。</div>
+          </div>
+          <div>
+            <div class="font-medium" data-i18n="vip_faq_2_q">VIP 是否有时间限制？</div>
+            <div class="text-slate-600" data-i18n="vip_faq_2_a">支持按月/季/年开通，到期前会提醒续期。</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+  <script>
+      const token = localStorage.getItem('token');
+      function authHeaders(base={}){ const h={...base}; if(token) h['Authorization'] = `Bearer ${token}`; return h; }
+
+      // topbar elevation and dark toggle & lang switch (same behavior as other pages)
+      (function(){
+        const tb = document.getElementById('app-topbar');
+        if (!tb) return;
+        let lastY = window.scrollY || window.pageYOffset;
+        const onScroll = ()=>{
+          const y = Math.max(0, window.scrollY || window.pageYOffset);
+          tb.classList.toggle('topbar--elevated', y > 4);
+          const delta = y - lastY; const threshold = 6;
+          if (y < 32) { tb.classList.remove('topbar--hidden'); lastY = y; return; }
+          if (delta > threshold && y > 64) tb.classList.add('topbar--hidden');
+          else if (delta < -threshold) tb.classList.remove('topbar--hidden');
+          lastY = y;
+        };
+        onScroll(); window.addEventListener('scroll', onScroll, { passive: true });
+      })();
+
+  (function(){
+        const btn = document.getElementById('btn-dark');
+        if (!btn) return;
+        const htmlEl = document.documentElement;
+        const updateIcon = ()=>{ btn.textContent = (htmlEl.getAttribute('data-theme')==='dark') ? '☀️' : '🌙'; };
+        updateIcon();
+        btn.onclick = ()=>{
+          const cur = htmlEl.getAttribute('data-theme')==='dark' ? 'light' : 'dark';
+          htmlEl.setAttribute('data-theme', cur);
+          try{ localStorage.setItem('rr_theme', cur); }catch(e){}
+          updateIcon();
+        };
+      })();
+
+      (function(){
+        function init(){
+          const zhBtn = document.getElementById('lang-top-zh');
+          const enBtn = document.getElementById('lang-top-en');
+          if (!zhBtn || !enBtn || !window.__i18n__) return;
+          const applyActive = ()=>{
+            const lang = document.documentElement.lang || 'zh-cn';
+            const isEn = lang.startsWith('en');
+            zhBtn.classList.toggle('bg-slate-900', !isEn);
+            zhBtn.classList.toggle('text-white', !isEn);
+            enBtn.classList.toggle('bg-slate-900', isEn);
+            enBtn.classList.toggle('text-white', isEn);
+          };
+          zhBtn.onclick = ()=>{ __i18n__.setLang('zh'); __i18n__.applyI18n(); applyActive(); };
+          enBtn.onclick = ()=>{ __i18n__.setLang('en'); __i18n__.applyI18n(); applyActive(); };
+          applyActive();
+        }
+        if (window.__i18n__) init();
+        else window.addEventListener('DOMContentLoaded', init);
+      })();
+    </script>
+    <footer class="mt-10 py-6 text-center text-xs text-slate-500">©RUR1 INNOVATION & Skyru AI</footer>
+
+    <!-- Wire Stripe checkout buttons, demo endpoints, and extend-free action (robust JSON handling) -->
+    <script>
+      (function(){
+        function t(k){ return (window.__i18n__ && __i18n__.t) ? __i18n__.t(k) : k; }
+        function getLang(){ const l = document.documentElement.lang||'zh-cn'; return l && l.toLowerCase().startsWith('en') ? 'en' : 'zh'; }
+        async function parseJsonSafe(r){
+          const ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
+          if (ct.includes('application/json')){
+            try { return await r.json(); } catch(_) { return {}; }
+          }
+          try { const text = await r.text(); return { error: text }; } catch(_) { return {}; }
+        }
+        function pickErr(j){ return j && (j.error || j.detail || j.message); }
+        function onReady(){
+          // If hash is #extend, keep stripe hidden and focus extend block
+          const hash = (location.hash||'').toLowerCase();
+          if (hash === '#extend'){
+            const el = document.getElementById('extend-free');
+            if (el) el.scrollIntoView({ behavior:'smooth', block:'start' });
+            const stripe = document.getElementById('stripe-cta');
+            if (stripe) stripe.classList.add('hidden');
+          }
+
+          // Extend VIP for free button
+          const btnExtend = document.getElementById('btn-extend-free');
+          const extendNote = document.getElementById('extend-note');
+          // On load: if current user is already VIP, disable the extend button
+          (async ()=>{
+            try{
+              const r = await apiFetch('/status/quota', { headers: authHeaders() });
+              if (r.ok){
+                const j = await r.json().catch(()=>({}));
+                if (j && j.vip){
+                  if (btnExtend){
+                    btnExtend.disabled = true;
+                    btnExtend.classList.add('opacity-50','cursor-not-allowed');
+                    btnExtend.title = t('alreadyVip');
+                  }
+                  if (extendNote){
+                    const exp = (j.expires_at || '').toString() || '—';
+                    extendNote.textContent = (t('extend_note_vip')||'').replace('{exp}', exp);
+                  }
+                } else {
+                  if (extendNote){ extendNote.textContent = t('extend_note_free'); }
+                }
+              } else {
+                if (extendNote){ extendNote.textContent = t('extend_note_free'); }
+              }
+            }catch(_){
+              if (extendNote){ extendNote.textContent = t('extend_note_free'); }
+            }
+          })();
+          if (btnExtend){
+            btnExtend.addEventListener('click', async ()=>{
+              const prev = btnExtend.textContent; btnExtend.disabled = true; btnExtend.textContent = t('processing')||'处理中...';
+              try{
+                const r = await apiFetch('/vip/purchase-demo', {
+                  method:'POST',
+                  headers: authHeaders({'Content-Type':'application/json'}),
+                  body: JSON.stringify({ plan: 'vip_90' })
+                });
+                const j = await parseJsonSafe(r);
+                if (r.ok && j && j.ok){
+                  if (window.showToast) showToast('success', (t('openOkPrefix')||'已开通：到期 ') + (j.expires_at||''));
+                } else {
+                  const msg = pickErr(j) || t('openFail') || '开通失败';
+                  if (window.showToast) showToast('error', msg);
+                }
+              }catch(e){ if (window.showToast) showToast('error', t('netErr')||'网络错误'); }
+              finally{ btnExtend.disabled = false; btnExtend.textContent = prev; }
+            });
+          }
+
+          document.querySelectorAll('.vip-btn').forEach(btn=>{
+            btn.addEventListener('click', async ()=>{
+              const plan = btn.getAttribute('data-plan');
+              const prev = btn.textContent; btn.disabled = true; btn.textContent = t('jumping')||'跳转中...';
+              try{
+                const success = location.origin + '/vip.html?ok=1&lang=' + getLang();
+                const cancel = location.origin + '/vip.html?canceled=1&lang=' + getLang();
+                const r = await apiFetch('/vip/checkout', {
+                  method:'POST',
+                  headers: authHeaders({'Content-Type':'application/json'}),
+                  body: JSON.stringify({ plan, success_url: success, cancel_url: cancel })
+                });
+                const j = await parseJsonSafe(r);
+                if (r.ok && j && j.ok && j.url){ location.href = j.url; }
+                else {
+                  const msg = pickErr(j) || t('payStartFail') || '无法发起支付';
+                  if (window.showToast) showToast('error', msg);
+                }
+              }catch(e){ if (window.showToast) showToast('error', t('netErr')||'网络错误'); }
+              finally{ btn.disabled = false; btn.textContent = prev; }
+            });
+          });
+          document.querySelectorAll('.demo-btn').forEach(btn=>{
+            btn.addEventListener('click', async ()=>{
+              const plan = btn.getAttribute('data-demo');
+              const prev = btn.textContent; btn.disabled = true; btn.textContent = t('processing')||'处理中...';
+              try{
+                const r = await apiFetch('/vip/purchase-demo', {
+                  method:'POST',
+                  headers: authHeaders({'Content-Type':'application/json'}),
+                  body: JSON.stringify({ plan })
+                });
+                const j = await parseJsonSafe(r);
+                if (r.ok && j && j.ok){
+                  if (window.showToast) showToast('success', (t('openOkPrefix')||'已开通：到期 ') + (j.expires_at||''));
+                } else {
+                  const msg = pickErr(j) || t('openFail') || '开通失败';
+                  if (window.showToast) showToast('error', msg);
+                }
+              }catch(e){ if (window.showToast) showToast('error', t('netErr')||'网络错误'); }
+              finally{ btn.disabled = false; btn.textContent = prev; }
+            });
+          });
+          const params = new URLSearchParams(location.search);
+          if (params.get('ok')){ if (window.showToast) showToast('success', t('paidOk')||'支付成功，正在开通 VIP'); }
+          if (params.get('canceled')){ if (window.showToast) showToast('info', t('canceled')||'已取消支付'); }
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', onReady);
+        else onReady();
+      })();
+    </script>
+  </body>
+</html>

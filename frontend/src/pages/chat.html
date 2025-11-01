@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-cn">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RRviewer - 聊天</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="assets/styles.css" />
+  <script src="assets/api.js" defer></script>
+  <script src="assets/i18n.js?v=20250915" defer></script>
+  </head>
+  <body class="bg-slate-50 text-slate-900">
+  <script>location.replace('workspace.html');</script>
+    <div class="max-w-3xl mx-auto p-6 mt-10 rounded-xl rr-card">
+      <h1 class="text-xl font-bold mb-4" data-i18n="ask_title">复习提要聊天</h1>
+      <textarea id="q" class="w-full border rounded p-2 h-32" data-i18n-placeholder="ask_placeholder" placeholder="输入问题..."></textarea>
+      <div class="flex gap-2 mt-2">
+        <button id="ask" class="bg-emerald-600 text-white px-4 py-2 rounded" data-i18n="ask_btn">提问</button>
+        <button id="batch" class="bg-sky-600 text-white px-4 py-2 rounded" data-i18n="batch_btn">批量提问示例</button>
+      </div>
+      <pre id="out" class="mt-4 text-xs text-slate-600"></pre>
+    </div>
+  <script>
+  // use shared API helper
+      const askBtn = document.getElementById('ask');
+      document.getElementById('ask').onclick = async () => {
+        const question = document.getElementById('q').value;
+        const token = localStorage.getItem('token');
+        const headers = { 'Content-Type':'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const rid = sessionStorage.getItem('review_id');
+        const prev = askBtn.textContent;
+        askBtn.disabled = true; askBtn.style.opacity = 0.8; askBtn.innerHTML = `<span class=\"spinner inline-block mr-2\"></span>${window.__i18n__?__i18n__.t('asking'):'提问中...'}`;
+        try {
+          const r = await apiFetch("/chat", {method:'POST', headers, body: JSON.stringify({question, review_sheet_id: rid})});
+          document.getElementById('out').textContent = JSON.stringify(await r.json(), null, 2);
+        } finally {
+          askBtn.disabled = false; askBtn.style.opacity = 1; askBtn.textContent = prev;
+        }
+      };
+      document.getElementById('batch').onclick = async () => {
+        const questions = ["是什么?", "为什么?", "怎么做?"];
+        const token = localStorage.getItem('token');
+        const headers = { 'Content-Type':'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const rid = sessionStorage.getItem('review_id');
+        const r = await apiFetch("/chat", {method:'POST', headers, body: JSON.stringify({questions, review_sheet_id: rid})});
+        document.getElementById('out').textContent = JSON.stringify(await r.json(), null, 2);
+      };
+  </script>
+  <footer class="mt-10 py-6 text-center text-xs text-slate-500">©RUR1 INNOVATION & Skyru AI</footer>
+  </body>
+</html>

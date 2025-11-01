@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-cn">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RRviewer - 登录</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="assets/styles.css?v=20250912" />
+  <script>window.I18N_NO_FLOAT = true;</script>
+  <script src="assets/i18n.js?v=20250915" defer></script>
+  <script src="assets/api.js" defer></script>
+  </head>
+  <body>
+    <div class="fixed top-0 left-0 right-0 z-10 topbar" id="app-topbar">
+      <div class="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
+  <a href="workspace.html" class="flex items-center"><img src="assets/logo.png" alt="RRviewer" class="brand-logo" /></a>
+        <div class="flex items-center gap-3 text-sm">
+          <button id="btn-dark" class="px-2 py-1 border border-slate-300 rounded" title="Dark mode">🌙</button>
+          <div class="flex items-center gap-1 text-xs">
+            <button id="lang-top-zh" type="button" class="px-2 py-1 border border-slate-300 rounded">中文</button>
+            <button id="lang-top-en" type="button" class="px-2 py-1 border border-slate-300 rounded">EN</button>
+          </div>
+          <a href="workspace.html" class="text-xs underline" data-i18n="go_to_generate">进入生成界面</a>
+        </div>
+      </div>
+    </div>
+  <div class="topbar-spacer"></div>
+  <div class="max-w-md mx-auto p-6 mt-20 rounded-xl rr-card">
+  <h1 class="text-2xl font-bold mb-4 flex items-center"><img src="assets/logo.png" alt="RRviewer" class="brand-logo mr-2" /><span class="sr-only">RRviewer</span></h1>
+  <p class="text-sm text-slate-600 mb-6" data-i18n="brand_tag">RUR1 INNOVATION & Skyru AI</p>
+      <div class="space-y-3">
+  <button id="login-google" class="w-full btn btn-secondary px-4 py-2" data-i18n="login_use_google">使用 Google 登录</button>
+  <!-- 隐藏微软登录入口：按需再开启，将 hidden 去掉即可 -->
+  <button id="login-ms" class="w-full btn btn-secondary px-4 py-2 hidden" data-i18n="login_use_ms">使用 Microsoft 登录</button>
+  <button id="try-free" class="w-full btn btn-primary px-4 py-2" data-i18n="try_once">先试用一次</button>
+      </div>
+      <div class="mt-6 border-t pt-4">
+        <h3 class="text-sm font-semibold mb-2" data-i18n="email_login_title">邮箱登录</h3>
+        <input id="email" type="email" class="w-full border rounded px-3 py-2 mb-2" data-i18n-placeholder="email_placeholder" placeholder="Email" />
+        <input id="password" type="password" class="w-full border rounded px-3 py-2 mb-3" data-i18n-placeholder="password_placeholder" placeholder="Password" />
+        <div class="flex items-center gap-2 mb-3">
+          <img id="captcha-img" src="" alt="captcha" class="h-10 w-28 border rounded bg-white object-contain" />
+          <button id="btn-refresh-captcha" type="button" class="text-xs underline" data-i18n="captcha_refresh">刷新验证码</button>
+          <input id="captcha-code" type="text" maxlength="8" class="flex-1 border rounded px-2 py-2 text-sm" data-i18n-placeholder="captcha_placeholder" placeholder="输入验证码" />
+        </div>
+        <div class="flex gap-2">
+          <button id="btn-register" class="btn btn-secondary px-3 py-2 text-sm" data-i18n="register_btn">注册</button>
+          <button id="btn-login-local" class="btn btn-primary px-3 py-2 text-sm" data-i18n="login_btn">登录</button>
+        </div>
+  <div class="mt-2 text-xs"><a id="link-forgot" href="#" class="underline text-slate-600" data-i18n="forgot_password">忘记密码？</a></div>
+      </div>
+      <p class="mt-4 text-xs text-slate-500" data-i18n="login_tip">登录后可上传学习资料并生成复习提要。</p>
+    </div>
+  <script>
+      // Apply saved theme on load
+      (function(){
+        const savedTheme = localStorage.getItem('rr_theme');
+        if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+      })();
+      // Default: redirect to workspace unless explicitly opening login via ?login=1
+      (function(){
+        const sp = new URLSearchParams(location.search);
+        if (sp.get('login') !== '1'){
+          location.replace('workspace.html');
+          return;
+        }
+      })();
+      // elevate + auto hide topbar on scroll
+      (function(){
+        const tb = document.getElementById('app-topbar');
+        if (!tb) return;
+        let lastY = window.scrollY || window.pageYOffset;
+        const onScroll = ()=>{
+          const y = Math.max(0, window.scrollY || window.pageYOffset);
+          tb.classList.toggle('topbar--elevated', y > 4);
+          const delta = y - lastY; const threshold = 6;
+          if (y < 32) { tb.classList.remove('topbar--hidden'); lastY = y; return; }
+          if (delta > threshold && y > 64) tb.classList.add('topbar--hidden');
+          else if (delta < -threshold) tb.classList.remove('topbar--hidden');
+          lastY = y;
+        };
+        onScroll(); window.addEventListener('scroll', onScroll, { passive: true });
+      })();
+      // Dark mode toggle
+      (function(){
+        const btn = document.getElementById('btn-dark');
+        if (!btn) return;
+        const htmlEl = document.documentElement;
+        const updateIcon = ()=>{ btn.textContent = (htmlEl.getAttribute('data-theme')==='dark') ? '☀️' : '🌙'; };
+        updateIcon();
+        btn.onclick = ()=>{
+          const cur = htmlEl.getAttribute('data-theme')==='dark' ? 'light' : 'dark';
+          htmlEl.setAttribute('data-theme', cur);
+          localStorage.setItem('rr_theme', cur);
+          updateIcon();
+        };
+      })();
+      // Language switch (sync with i18n) — initialize after i18n.js is ready
+      (function(){
+        function init(){
+          const zhBtn = document.getElementById('lang-top-zh');
+          const enBtn = document.getElementById('lang-top-en');
+          if (!zhBtn || !enBtn || !window.__i18n__) return;
+          const applyActive = ()=>{
+            const lang = document.documentElement.lang || 'zh-cn';
+            const isEn = lang.startsWith('en');
+            zhBtn.classList.toggle('bg-slate-900', !isEn);
+            zhBtn.classList.toggle('text-white', !isEn);
+            enBtn.classList.toggle('bg-slate-900', isEn);
+            enBtn.classList.toggle('text-white', isEn);
+          };
+          zhBtn.onclick = ()=>{ __i18n__.setLang('zh'); __i18n__.applyI18n(); applyActive(); };
+          enBtn.onclick = ()=>{ __i18n__.setLang('en'); __i18n__.applyI18n(); applyActive(); };
+          applyActive();
+        }
+        if (window.__i18n__) init();
+        else window.addEventListener('DOMContentLoaded', init);
+      })();
+      document.getElementById('try-free').onclick = async () => {
+        const r = await apiFetch("/auth/trial-status");
+        const j = await r.json();
+        if (j.trial_used) {
+          alert(window.__i18n__ ? __i18n__.t('trial_used_alert') : '试用已用完，请登录');
+        } else {
+          localStorage.setItem('rr_trial', 'used');
+          location.href = 'workspace.html';
+        }
+      };
+      async function startOAuth(provider){
+        const r = await apiFetch("/auth/login", {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({provider})});
+        const j = await r.json();
+        if (j.ok && j.auth_url) {
+          // Ensure redirect goes to backend host, not current frontend origin
+          let target = (/^https?:\/\//i.test(j.auth_url)) ? j.auth_url : (window.API_BASE + j.auth_url);
+          // Attach current frontend origin to help backend callback redirect back correctly
+          const sep = target.includes('?') ? '&' : '?';
+          target = target + sep + 'front=' + encodeURIComponent(location.origin);
+          location.href = target; return;
+        }
+        if (j.ok && j.token){
+          try { document.cookie = `rr_token=${j.token}; path=/; max-age=2592000; samesite=lax`; } catch(e){}
+          localStorage.setItem('token', j.token); location.href='workspace.html'; return;
+        }
+        alert('登录失败');
+      }
+      document.getElementById('login-google').onclick = () => startOAuth('google');
+      document.getElementById('login-ms').onclick = () => startOAuth('microsoft');
+
+    // Captcha handling
+    let __captchaId = '';
+  async function loadCaptcha(){
+      try{
+    const r = await apiFetch("/auth/captcha");
+        const j = await r.json();
+        if (j.ok){ __captchaId = j.id; const img = document.getElementById('captcha-img'); if(img) img.src = j.image; }
+      }catch(e){ /* ignore */ }
+    }
+    document.getElementById('btn-refresh-captcha').onclick = ()=> loadCaptcha();
+    loadCaptcha();
+
+  async function authLocal(path){
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        const code = document.getElementById('captcha-code').value.trim();
+        if (!email || !password){ alert('请输入邮箱和密码'); return; }
+        if (!code){ alert('请输入验证码'); return; }
+    const r = await apiFetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, password, captcha_id: __captchaId, captcha_code: code})});
+        const j = await r.json();
+  if (j.ok && j.token){ try { document.cookie = `rr_token=${j.token}; path=/; max-age=2592000; samesite=lax`; } catch(e){} localStorage.setItem('token', j.token); location.href='workspace.html'; }
+  else { alert(j.error || (window.__i18n__?__i18n__.t('operation_failed'):'操作失败')); loadCaptcha(); }
+      }
+      document.getElementById('btn-register').onclick = ()=> authLocal('/auth/register');
+      document.getElementById('btn-login-local').onclick = ()=> authLocal('/auth/login-local');
+      // Forgot password
+      document.getElementById('link-forgot').onclick = async (e)=>{
+        e.preventDefault();
+        const email = (document.getElementById('email').value || '').trim();
+        if (!email){ alert(window.__i18n__?__i18n__.t('please_enter_email'):'请输入邮箱'); return; }
+        try{
+          const r = await apiFetch("/auth/forgot-password", {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email})});
+          const j = await r.json().catch(()=>({ok:true}));
+          alert(window.__i18n__?__i18n__.t('forgot_sent_tip'):'如果邮箱存在，已发送重置链接，请查收邮件');
+        }catch(err){ alert(window.__i18n__?__i18n__.t('request_failed'):'请求失败，请稍后再试'); }
+      };
+    </script>
+  <footer class="mt-10 py-6 text-center text-xs text-slate-500">©RUR1 INNOVATION & Skyru AI</footer>
+  </body>
+</html>

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-cn">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RRviewer - 上传</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="assets/styles.css" />
+  <script src="assets/api.js" defer></script>
+  <script src="assets/i18n.js?v=20250915" defer></script>
+  </head>
+  <body class="bg-slate-50 text-slate-900">
+  <script>location.replace('workspace.html');</script>
+    <div class="max-w-2xl mx-auto p-6 mt-10 rounded-xl rr-card">
+      <h1 class="text-xl font-bold mb-4" data-i18n="upload_title">上传资料或手动输入</h1>
+  <form id="upload-form" class="space-y-4">
+        <input type="file" name="file" class="block w-full" />
+        <div>
+          <label class="block text-sm mb-1" data-i18n="upload_url_label">或从链接抓取</label>
+          <input type="url" name="url" class="w-full border rounded p-2" data-i18n-placeholder="upload_url_placeholder" placeholder="例如：https://example.com/file.pdf" />
+        </div>
+        <textarea name="text" data-i18n-placeholder="paste_text" placeholder="或粘贴文本..." class="w-full border rounded p-2 h-40"></textarea>
+        <div class="flex gap-2">
+          <button id="btn-upload" class="bg-emerald-600 text-white px-4 py-2 rounded" type="submit" data-i18n="upload_btn">上传</button>
+          <a class="px-4 py-2 rounded border" href="review.html" data-i18n="skip_to_generate">跳过到生成</a>
+        </div>
+      </form>
+      <pre id="result" class="mt-4 text-xs text-slate-600"></pre>
+    </div>
+  <script>
+      const form = document.getElementById('upload-form');
+      const btn = document.getElementById('btn-upload');
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const prev = btn.textContent;
+        btn.disabled = true; btn.style.opacity = 0.8; btn.innerHTML = `<span class="spinner inline-block mr-2"></span>${window.__i18n__?__i18n__.t('uploading'):'上传中...'}`;
+        const fd = new FormData(form);
+        const token = localStorage.getItem('token');
+        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+        try {
+          const r = await apiFetch("/upload", {method:'POST', headers, body: fd});
+          const j = await r.json();
+          document.getElementById('result').textContent = JSON.stringify(j, null, 2);
+          if (j.ok) {
+            sessionStorage.setItem('lastUploadChars', j.chars);
+          }
+        } finally {
+          btn.disabled = false; btn.style.opacity = 1; btn.textContent = prev;
+        }
+      };
+  </script>
+  <footer class="mt-10 py-6 text-center text-xs text-slate-500">©RUR1 INNOVATION & Skyru AI</footer>
+  </body>
+</html>
