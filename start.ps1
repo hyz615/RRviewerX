@@ -1,171 +1,216 @@
-<#
+﻿<#
 .SYNOPSIS
-启动本地或 Docker 开发环境（后端 FastAPI + 前端静态页）。
-
-.DESCRIPTION
-默认模式会：
-- 创建/激活 Python 虚拟环境 .venv
-- 安装后端依赖（backend/requirements.txt）
-- 启动后端 (Uvicorn) 与前端 (python -m http.server)
+  RRviewerX 一键启动脚本（本地 / Docker）。
 
 .PARAMETER Mode
-local（默认）：本地启动；docker：使用 docker compose。
+  local（默认）或 docker。
 
 .PARAMETER BackendPort
-后端端口，默认 8000。
+  后端端口，默认 8000。
 
 .PARAMETER FrontendPort
-前端端口，默认 8080。
+  前端端口，默认 8080。
+
+.PARAMETER Workers
+  Uvicorn worker 数。0 = 默认单进程。
 
 .PARAMETER NoBrowser
-启用后不自动打开浏览器。
+  启用时不自动打开浏览器。
+
+.PARAMETER SkipDeps
+  跳过 pip install（加速重启）。
 
 .EXAMPLE
-./start.ps1
-
-.EXAMPLE
-./start.ps1 -Mode local -BackendPort 8001 -FrontendPort 9090
-
-.EXAMPLE
-./start.ps1 -Mode docker
+  ./start.ps1
+  ./start.ps1 -Mode docker
+  ./start.ps1 -BackendPort 8001 -FrontendPort 9090 -Workers 2 -SkipDeps
 #>
 
 [CmdletBinding()]
-Param(
-    [ValidateSet("local","docker")]
-    [string]$Mode = "local",
+param(
+    [ValidateSet('local', 'docker')]
+    [string]$Mode = 'local',
 
+    [ValidateRange(1, 65535)]
     [int]$BackendPort = 8000,
+
+    [ValidateRange(1, 65535)]
     [int]$FrontendPort = 8080,
 
-    # 并发工作进程数（Uvicorn workers）。0 表示不指定，由 Uvicorn 默认决定（通常为 1）。
+    [ValidateRange(0, 32)]
     [int]$Workers = 0,
 
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$SkipDeps
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-function Write-Info([string]$msg) { Write-Host "[info] $msg" -ForegroundColor Yellow }
-function Write-Step([string]$msg) { Write-Host "[setup] $msg" -ForegroundColor Cyan }
-function Write-Run([string]$msg)  { Write-Host "[run] $msg" -ForegroundColor Green }
-function Write-Warn2([string]$msg){ Write-Host "[warn] $msg" -ForegroundColor DarkYellow }
-function Write-Err2([string]$msg) { Write-Host "[error] $msg" -ForegroundColor Red }
+# ── Pretty output helpers ───────────────────────────────────────────
+function Write-Step  ([string]$m) { Write-Host "  > $m" -ForegroundColor Cyan }
+function Write-OK    ([string]$m) { Write-Host "  + $m" -ForegroundColor Green }
+function Write-Warn  ([string]$m) { Write-Host "  ! $m" -ForegroundColor Yellow }
+function Write-Err   ([string]$m) { Write-Host "  x $m" -ForegroundColor Red }
 
-function Show-Usage {
-    Write-Host "Usage: ./start.ps1 [-Mode local|docker] [-BackendPort <int>] [-FrontendPort <int>] [-NoBrowser]" -ForegroundColor Yellow
+function Write-Banner {
+    Write-Host ''
+    Write-Host '  ========================================' -ForegroundColor DarkCyan
+    Write-Host '         RRviewerX  Dev  Launcher         ' -ForegroundColor DarkCyan
+    Write-Host '  ========================================' -ForegroundColor DarkCyan
+    Write-Host ''
 }
 
-function Test-CommandExists([string]$name) {
-    return [bool](Get-Command $name -ErrorAction SilentlyContinue)
+# ── Utility functions ───────────────────────────────────────────────
+function Test-Cmd ([string]$Name) {
+    [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
-function Test-PortInUse([int]$Port) {
+function Test-PortBusy ([int]$Port) {
     try {
-        $lines = (netstat -ano | Select-String ":$Port\s").ToString()
-        return -not [string]::IsNullOrEmpty($lines)
+        $conn = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
+        return ($null -ne $conn -and $conn.Count -gt 0)
     } catch { return $false }
 }
 
-function Ensure-Venv {
-    if (-not (Test-Path ".venv")) {
-        Write-Step "Creating venv at .venv"
-        try {
-            if (Test-CommandExists "py") { py -3.11 -m venv .venv }
-            elseif (Test-CommandExists "python") { python -m venv .venv }
-            else { throw "Python is not installed or not in PATH." }
-        } catch {
-            throw "Failed to create virtual environment: $($_.Exception.Message)"
+function Assert-PortFree ([int]$Port, [string]$Label) {
+    if (Test-PortBusy $Port) {
+        Write-Err "Port $Port ($Label) is already in use."
+        Write-Err "Run: Get-Process -Id (Get-NetTCPConnection -LocalPort $Port).OwningProcess"
+        throw "Port $Port occupied"
+    }
+}
+
+function Find-Python {
+    # Try real interpreters first; 'python3' on Windows is often the Store stub
+    foreach ($cmd in 'python', 'py') {
+        if (Test-Cmd $cmd) {
+            try {
+                $ver = & $cmd --version 2>&1
+                if ($ver -match 'Python 3') { return $cmd }
+            } catch { }
         }
     }
+    throw 'Python 3 not found. Install Python 3.10+ and ensure it is on PATH.'
 }
 
-function Activate-Venv {
-    $activate = Join-Path ".venv" "Scripts/Activate.ps1"
-    if (-not (Test-Path $activate)) {
-        throw "Virtual environment activation script not found: $activate"
-    }
-    . $activate
-}
-
-function Install-Backend-Deps {
-    Write-Step "Installing backend dependencies"
-    if (-not (Test-Path "backend/requirements.txt")) {
-        Write-Warn2 "backend/requirements.txt not found, skipping dependency install."
+# ── Virtual-env management ──────────────────────────────────────────
+function Ensure-Venv {
+    if (Test-Path '.venv/Scripts/python.exe') {
+        Write-OK 'Virtual environment found'
         return
     }
-    pip install -U pip *> $null
-    pip install -r "backend/requirements.txt"
-}
-
-function Start-Backend([int]$Port,[int]$FrontendPortParam,[int]$WorkersParam) {
-    # Build allowed origins including localhost, loopback and LAN IP
-    try {
-        $ips = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notmatch '^169\.254\.' -and $_.IPAddress -ne '127.0.0.1' } | Select-Object -ExpandProperty IPAddress)
-    } catch { $ips = @() }
-    if (-not $ips) { $ips = @() }
-    $origins = @("http://localhost:$FrontendPortParam","http://127.0.0.1:$FrontendPortParam","http://localhost:5173","http://localhost:3000")
-    foreach ($ip in $ips) { $origins += "http://$($ip):$FrontendPortParam" }
-    $env:ALLOWED_ORIGINS = ($origins -join ',')
-    $pythonExe = Join-Path ".venv" "Scripts/python.exe"
-    if (-not (Test-Path $pythonExe)) { throw "Python executable not found in .venv: $pythonExe" }
-    if (Test-PortInUse $Port) { Write-Warn2 "Port $Port seems in use; backend may fail to bind." }
-    Write-Run "Starting backend at http://localhost:$Port"
-    $args = @("-m","uvicorn","app.main:app","--host","0.0.0.0","--port","$Port","--app-dir","backend")
-    if ($WorkersParam -gt 0) {
-        $args += @("--workers","$WorkersParam")
+    Write-Step 'Creating virtual environment (.venv) ...'
+    $py = Find-Python
+    if ($py -eq 'py') { & py -3 -m venv .venv }
+    else               { & $py -m venv .venv    }
+    if (-not (Test-Path '.venv/Scripts/python.exe')) {
+        throw 'Failed to create .venv - check your Python installation.'
     }
-    Start-Process -FilePath (Resolve-Path $pythonExe) `
-        -ArgumentList $args `
-        -WorkingDirectory (Get-Location) `
-        -WindowStyle Normal | Out-Null
+    Write-OK 'Virtual environment created'
 }
 
-function Start-Frontend([int]$Port) {
-    if (-not (Test-Path "frontend/src/pages")) { throw "Frontend directory not found: frontend/src/pages" }
-    $pythonExe = Join-Path ".venv" "Scripts/python.exe"
-    if (-not (Test-Path $pythonExe)) { throw "Python executable not found in .venv: $pythonExe" }
-    # Ensure logo asset available under served root (frontend/src/pages/assets/logo.png)
-    try {
-        $dstDir = Join-Path "frontend/src/pages" "assets"
-        if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
-        $srcLogo = Join-Path (Get-Location) "logo.png"
-        $dstLogo = Join-Path $dstDir "logo.png"
-        if (Test-Path $srcLogo) {
-            Copy-Item -Path $srcLogo -Destination $dstLogo -Force
-        } elseif (-not (Test-Path $dstLogo)) {
-            Write-Warn2 "logo.png not found in repository root; top-left logo image may be missing."
-        }
-    } catch { Write-Warn2 "Failed to prepare logo asset: $($_.Exception.Message)" }
-    if (Test-PortInUse $Port) { Write-Warn2 "Port $Port seems in use; frontend may fail to bind." }
-    Write-Run "Serving frontend at http://localhost:$Port"
-    Start-Process -FilePath (Resolve-Path $pythonExe) `
-        -ArgumentList "-m","http.server","$Port","-d","frontend/src/pages" `
-        -WorkingDirectory (Get-Location) `
-        -WindowStyle Normal | Out-Null
+function Install-Deps {
+    $req = 'backend/requirements.txt'
+    if (-not (Test-Path $req)) {
+        Write-Warn "$req not found - skipping"
+        return
+    }
+    Write-Step 'Installing backend dependencies ...'
+    & .venv/Scripts/python.exe -m pip install --quiet --upgrade pip
+    & .venv/Scripts/python.exe -m pip install --quiet -r $req
+    Write-OK 'Dependencies installed'
 }
+
+# ── Service launchers ───────────────────────────────────────────────
+function Start-Backend ([int]$Port, [int]$FEPort, [int]$W) {
+    Assert-PortFree $Port 'backend'
+
+    # Build ALLOWED_ORIGINS for CORS
+    $origins = @(
+        "http://localhost:$FEPort",
+        "http://127.0.0.1:$FEPort",
+        'http://localhost:5173',
+        'http://localhost:3000'
+    )
+    try {
+        $lanIPs = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Where-Object { $_.IPAddress -notmatch '^(169\.254\.|127\.)' } |
+            Select-Object -ExpandProperty IPAddress
+        foreach ($ip in $lanIPs) { $origins += "http://${ip}:$FEPort" }
+    } catch { }
+    $env:ALLOWED_ORIGINS = $origins -join ','
+
+    $pyExe = Resolve-Path '.venv/Scripts/python.exe'
+    $uvi   = @('-m', 'uvicorn', 'app.main:app',
+               '--host', '0.0.0.0', '--port', "$Port",
+               '--app-dir', 'backend')
+    if ($W -gt 0) { $uvi += '--workers', "$W" }
+
+    Write-Step "Starting backend -> http://localhost:$Port"
+    Start-Process -FilePath $pyExe -ArgumentList $uvi -WorkingDirectory $PWD -WindowStyle Normal
+    Write-OK "Backend PID launched (port $Port)"
+}
+
+function Start-Frontend ([int]$Port) {
+    Assert-PortFree $Port 'frontend'
+    $pagesDir = 'frontend/src/pages'
+    if (-not (Test-Path $pagesDir)) { throw "Frontend dir missing: $pagesDir" }
+
+    # Copy logo if available
+    $logo = 'logo.png'
+    $dst  = "$pagesDir/assets/logo.png"
+    if ((Test-Path $logo) -and (-not (Test-Path $dst) -or
+        (Get-Item $logo).LastWriteTime -gt (Get-Item $dst).LastWriteTime)) {
+        Copy-Item $logo $dst -Force
+    }
+
+    $pyExe = Resolve-Path '.venv/Scripts/python.exe'
+    Write-Step "Starting frontend -> http://localhost:$Port"
+    Start-Process -FilePath $pyExe `
+        -ArgumentList '-m', 'http.server', "$Port", '-d', $pagesDir `
+        -WorkingDirectory $PWD -WindowStyle Normal
+    Write-OK "Frontend PID launched (port $Port)"
+}
+
+# ── Docker mode ─────────────────────────────────────────────────────
+function Start-Docker {
+    if (-not (Test-Cmd 'docker')) {
+        throw 'Docker is not installed or not on PATH.'
+    }
+    Write-Step 'Building & starting containers (docker compose) ...'
+    docker compose up --build -d
+    Write-OK 'Docker services started'
+}
+
+# ══════════════════════════════════════════════════════════════════════
+#  MAIN
+# ══════════════════════════════════════════════════════════════════════
+Write-Banner
 
 switch ($Mode) {
-    "local" {
+    'local' {
         Ensure-Venv
-        Activate-Venv
-        Install-Backend-Deps
-    Start-Backend -Port $BackendPort -FrontendPortParam $FrontendPort -WorkersParam $Workers
+        if (-not $SkipDeps) { Install-Deps } else { Write-Warn 'Skipping deps (-SkipDeps)' }
+        Start-Backend  -Port $BackendPort -FEPort $FrontendPort -W $Workers
         Start-Frontend -Port $FrontendPort
-        Start-Sleep -Seconds 1
-        Write-Info "Open frontend: http://localhost:$FrontendPort/index.html"
-        Write-Info "Backend API: http://localhost:$BackendPort"
+
+        Write-Host ''
+        Write-Host "  -----------------------------------------" -ForegroundColor DarkGreen
+        Write-Host "    Frontend : http://localhost:$FrontendPort" -ForegroundColor DarkGreen
+        Write-Host "    Backend  : http://localhost:$BackendPort" -ForegroundColor DarkGreen
+        Write-Host "  -----------------------------------------" -ForegroundColor DarkGreen
+        Write-Host ''
+
         if (-not $NoBrowser) {
-            try { Start-Process "http://localhost:$FrontendPort/index.html" | Out-Null } catch {}
+            Start-Sleep -Milliseconds 800
+            try { Start-Process "http://localhost:$FrontendPort/index.html" } catch { }
         }
     }
-    "docker" {
-        Write-Step "Building and starting services (frontend:$FrontendPort, backend:$BackendPort)"
-        if (Get-Command docker -ErrorAction SilentlyContinue) {
-            docker compose up --build
-        } else {
-            throw "Docker is not installed or not in PATH."
-        }
+    'docker' {
+        Start-Docker
+        Write-Host ''
+        Write-OK "Frontend -> http://localhost:$FrontendPort   Backend -> http://localhost:$BackendPort"
+        Write-Host ''
     }
 }

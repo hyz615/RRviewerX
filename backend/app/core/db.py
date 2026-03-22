@@ -81,6 +81,14 @@ def _sqlite_ensure_columns() -> None:
                         conn.exec_driver_sql(f"ALTER TABLE ticketreply ADD COLUMN {name} {typ}")
             except Exception:
                 pass
+            # ReviewSheet table: ensure is_favorite column
+            try:
+                res5 = conn.exec_driver_sql("PRAGMA table_info(reviewsheet)")
+                cols_rs = {row[1] for row in res5.fetchall()}
+                if "is_favorite" not in cols_rs:
+                    conn.exec_driver_sql("ALTER TABLE reviewsheet ADD COLUMN is_favorite INTEGER DEFAULT 0")
+            except Exception:
+                pass
     except Exception:
         # best-effort; avoid blocking startup
         pass

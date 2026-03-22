@@ -1,5 +1,6 @@
 from fastapi import Depends, Header, HTTPException, Response, Cookie
 from typing import Optional
+from datetime import datetime, timezone
 from .jwt import verify_jwt
 from ..models.models import LocalUser, User
 from .db import get_session
@@ -49,14 +50,13 @@ def get_current_user(authorization: Optional[str] = Header(default=None, alias="
                 # Ban enforcement: if mapped to LocalUser and disabled -> reject
                 try:
                     with next(get_session()) as s:  # type: ignore
-                        from datetime import datetime
                         if sub.startswith("local:"):
                             try:
                                 lid = int(sub.split(":",1)[1])
                                 u = s.get(LocalUser, lid)
                                 if u and u.disabled:
                                     # auto-unban if expired
-                                    if u.ban_expires_at and u.ban_expires_at < datetime.utcnow():
+                                    if u.ban_expires_at and u.ban_expires_at < datetime.now(timezone.utc):
                                         u.disabled = False; u.ban_reason=None; u.ban_expires_at=None; s.add(u); s.commit()
                                     else:
                                         return None
@@ -65,7 +65,7 @@ def get_current_user(authorization: Optional[str] = Header(default=None, alias="
                         else:
                             ou = s.exec(select(User).where(User.provider == provider, User.sub == sub)).first()
                             if ou and getattr(ou, 'disabled', False):
-                                if getattr(ou, 'ban_expires_at', None) and ou.ban_expires_at < datetime.utcnow():
+                                if getattr(ou, 'ban_expires_at', None) and ou.ban_expires_at < datetime.now(timezone.utc):
                                     ou.disabled = False; ou.ban_reason=None; ou.ban_expires_at=None; s.add(ou); s.commit()
                                 else:
                                     return None

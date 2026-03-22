@@ -13,13 +13,23 @@ router = APIRouter()
 def list_history(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    q: Optional[str] = Query(default=None, description="Search in content/kind"),
+    kind: Optional[str] = Query(default=None, description="Filter by kind"),
+    fav: Optional[bool] = Query(default=None, description="Only favorites"),
     session: Session = Depends(get_session),
     uid: Optional[int] = Depends(get_current_user),
 ):
     if uid is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    q = select(ReviewSheet).where(ReviewSheet.user_id == uid).order_by(ReviewSheet.created_at.desc()).limit(limit).offset(offset)
-    items: List[ReviewSheet] = session.exec(q).all()
+    stmt = select(ReviewSheet).where(ReviewSheet.user_id == uid)
+    if q:
+        stmt = stmt.where(ReviewSheet.content.ilike(f"%{q}%"))
+    if kind:
+        stmt = stmt.where(ReviewSheet.kind == kind.lower())
+    if fav is True:
+        stmt = stmt.where(ReviewSheet.is_favorite == True)
+    stmt = stmt.order_by(ReviewSheet.created_at.desc()).limit(limit).offset(offset)
+    items: List[ReviewSheet] = session.exec(stmt).all()
     # Map source filenames
     src_ids = [it.source_id for it in items if it.source_id]
     fn_map: Dict[int, str] = {}
@@ -39,6 +49,7 @@ def list_history(
             "source_id": it.source_id,
             "source_name": fn_map.get(it.source_id) if it.source_id else None,
             "preview": preview(it.content or ""),
+            "is_favorite": bool(it.is_favorite),
         }
         for it in items
     ]
@@ -65,4 +76,30 @@ def get_history_item(rid: int, session: Session = Depends(get_session), uid: Opt
         "source_id": rs.source_id,
         "source_name": src_name,
         "text": rs.content or "",
+        "is_favorite": bool(rs.is_favorite),
     }
+
+
+@router.post("/{rid}/favorite")
+def toggle_favorite(rid: int, session: Session = Depends(get_session), uid: Optional[int] = Depends(get_current_user)):
+    if uid is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    rs = session.get(ReviewSheet, rid)
+    if not rs or rs.user_id != uid:
+        raise HTTPException(status_code=404, detail="Not found")
+    rs.is_favorite = not rs.is_favorite
+    session.add(rs)
+    session.commit()
+    return {"ok": True, "is_favorite": rs.is_favorite}
+
+
+@router.delete("/{rid}")
+def delete_history_item(rid: int, session: Session = Depends(get_session), uid: Optional[int] = Depends(get_current_user)):
+    if uid is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    rs = session.get(ReviewSheet, rid)
+    if not rs or rs.user_id != uid:
+        raise HTTPException(status_code=404, detail="Not found")
+    session.delete(rs)
+    session.commit()
+    return {"ok": True}

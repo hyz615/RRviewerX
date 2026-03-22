@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
+from datetime import datetime, timezone, timedelta
 from ..core.db import get_session
 from ..core.deps import get_current_user
 from ..models.entities import LocalUser, User
@@ -55,7 +56,6 @@ def disable_user(user_id: int, body: DisableBody | None = None, current=Depends(
         raise HTTPException(status_code=404, detail="User not found")
     u.disabled = True
     # parse expires_at
-    from datetime import datetime
     if body and body.expires_at:
         try:
             u.ban_expires_at = datetime.fromisoformat(body.expires_at)
@@ -83,16 +83,16 @@ def enable_user(user_id: int, current=Depends(get_current_user), session: Sessio
     return {"ok": True}
 
 
-class ResetPasswordBody:
+class ResetPasswordBody(BaseModel):
     password: str
 
 
 @router.post("/users/{user_id}/reset-password")
-def reset_password(user_id: int, body: dict, current=Depends(get_current_user), session: Session = Depends(get_session)):
+def reset_password(user_id: int, body: ResetPasswordBody, current=Depends(get_current_user), session: Session = Depends(get_session)):
     require_admin(current, session)
-    pw = (body or {}).get("password", "").strip()
-    if not pw:
-        raise HTTPException(status_code=400, detail="Password required")
+    pw = body.password.strip()
+    if not pw or len(pw) < 6:
+        raise HTTPException(status_code=400, detail="Password required (min 6 chars)")
     u = session.get(LocalUser, user_id)
     if not u:
         raise HTTPException(status_code=404, detail="User not found")
@@ -146,7 +146,6 @@ def disable_oauth_user(user_id: int, body: DisableBody | None = None, current=De
     if not u:
         raise HTTPException(status_code=404, detail="User not found")
     u.disabled = True
-    from datetime import datetime
     if body and body.expires_at:
         try:
             u.ban_expires_at = datetime.fromisoformat(body.expires_at)
@@ -205,8 +204,7 @@ def vip_grant(
     days = max(0, int(body.days or 0))
     if days <= 0:
         raise HTTPException(status_code=400, detail="days must be > 0")
-    from datetime import datetime, timedelta
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     v = session.exec(select(Vip).where(Vip.user_key == body.user_key)).first()
     if not v:
         v = Vip(user_key=body.user_key, is_vip=True, expires_at=now + timedelta(days=days))
@@ -251,8 +249,7 @@ def get_monthly_usage(
     session: Session = Depends(get_session),
 ):
     require_admin(current, session)
-    from datetime import datetime
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     m = session.exec(select(MonthlyUsage).where(MonthlyUsage.user_key == user_key, MonthlyUsage.year == now.year, MonthlyUsage.month == now.month)).first()
     count = m.count if m else 0
     return {"ok": True, "user_key": user_key, "year": now.year, "month": now.month, "count": count}
@@ -272,16 +269,15 @@ def set_monthly_usage(
     session: Session = Depends(get_session),
 ):
     require_admin(current, session)
-    from datetime import datetime
-    year = body.year or datetime.utcnow().year
-    month = body.month or datetime.utcnow().month
+    year = body.year or datetime.now(timezone.utc).year
+    month = body.month or datetime.now(timezone.utc).month
     m = session.exec(select(MonthlyUsage).where(MonthlyUsage.user_key == body.user_key, MonthlyUsage.year == year, MonthlyUsage.month == month)).first()
     if not m:
         m = MonthlyUsage(user_key=body.user_key, year=year, month=month, count=body.count)
         session.add(m)
     else:
         m.count = body.count
-        m.updated_at = datetime.utcnow()
+        m.updated_at = datetime.now(timezone.utc)
         session.add(m)
     session.commit()
     return {"ok": True}

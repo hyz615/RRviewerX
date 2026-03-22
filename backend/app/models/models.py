@@ -1,7 +1,10 @@
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, date, timezone
 from sqlmodel import SQLModel, Field
-from datetime import date
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class User(SQLModel, table=True):
@@ -12,7 +15,7 @@ class User(SQLModel, table=True):
     disabled: bool = False
     ban_reason: Optional[str] = None
     ban_expires_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class LocalUser(SQLModel, table=True):
@@ -23,7 +26,7 @@ class LocalUser(SQLModel, table=True):
     disabled: bool = False
     ban_reason: Optional[str] = None
     ban_expires_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class Trial(SQLModel, table=True):
@@ -40,7 +43,7 @@ class FileMeta(SQLModel, table=True):
     content_type: Optional[str] = None
     size: int = 0
     stored_path: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class ReviewSheet(SQLModel, table=True):
@@ -49,7 +52,8 @@ class ReviewSheet(SQLModel, table=True):
     source_id: Optional[int] = Field(default=None, index=True)
     kind: str  # outline|qa|flashcards
     content: str  # JSON string
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    is_favorite: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class Vip(SQLModel, table=True):
@@ -57,7 +61,7 @@ class Vip(SQLModel, table=True):
     user_key: str = Field(index=True, unique=True)
     is_vip: bool = True
     expires_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class UsageCounter(SQLModel, table=True):
@@ -65,7 +69,7 @@ class UsageCounter(SQLModel, table=True):
     user_key: str = Field(index=True)
     day: date = Field(index=True)
     count: int = 0
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class MonthlyUsage(SQLModel, table=True):
@@ -74,7 +78,7 @@ class MonthlyUsage(SQLModel, table=True):
     year: int = Field(index=True)
     month: int = Field(index=True)
     count: int = 0
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
 
 
 class Ticket(SQLModel, table=True):
@@ -83,8 +87,8 @@ class Ticket(SQLModel, table=True):
     subject: str
     content: str
     status: str = Field(default="open", index=True)  # open|in_progress|resolved|closed
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
 
 
 class TicketReply(SQLModel, table=True):
@@ -93,4 +97,4 @@ class TicketReply(SQLModel, table=True):
     author_id: Optional[int] = Field(default=None, index=True)
     author_role: str = Field(default="admin")  # admin|user
     content: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)

@@ -75,9 +75,9 @@ def admin_set_status(ticket_id: int, body: TicketStatusBody, current=Depends(get
 	new_status = (body.status or "").strip().lower()
 	if new_status not in {"open", "in_progress", "resolved", "closed"}:
 		raise HTTPException(status_code=400, detail="Invalid status")
-	from datetime import datetime
+	from datetime import datetime, timezone
 	t.status = new_status
-	t.updated_at = datetime.utcnow()
+	t.updated_at = datetime.now(timezone.utc)
 	session.add(t)
 	session.commit()
 	return {"ok": True}
@@ -111,8 +111,8 @@ def admin_add_reply(ticket_id: int, body: ReplyCreateBody, current=Depends(get_c
 	r = TicketReply(ticket_id=ticket_id, author_id=u.id, author_role="admin", content=content)
 	session.add(r)
 	# also bump ticket updated_at
-	from datetime import datetime
-	t.updated_at = datetime.utcnow()
+	from datetime import datetime, timezone
+	t.updated_at = datetime.now(timezone.utc)
 	session.add(t)
 	session.commit()
 	session.refresh(r)

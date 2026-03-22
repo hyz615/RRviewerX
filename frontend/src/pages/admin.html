@@ -7,9 +7,10 @@
     <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="assets/styles.css?v=20250912" />
     <script src="assets/api.js" defer></script>
+    <script src="assets/toast.js" defer></script>
   </head>
   <body class="bg-slate-50 text-slate-900">
-    <div class="fixed top-0 left-0 right-0 z-10 topbar" id="app-topbar">
+    <nav class="fixed top-0 left-0 right-0 z-10 topbar" id="app-topbar" role="navigation" aria-label="Admin navigation">
       <div class="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
   <a href="workspace.html" class="flex items-center"><img src="assets/logo.png" alt="RRviewer" class="brand-logo" /></a>
         <div class="flex-1 flex items-center justify-center">
@@ -19,28 +20,29 @@
           </div>
         </div>
         <div class="flex items-center gap-3 text-sm">
-          <button id="btn-dark" class="px-2 py-1 border border-slate-300 rounded" title="Dark mode">🌙</button>
+          <button id="btn-dark" class="px-2 py-1 border border-slate-300 rounded" title="Dark mode" aria-label="Toggle dark mode">🌙</button>
           <a href="workspace.html" class="underline text-xs">返回工作台</a>
         </div>
       </div>
-    </div>
+    </nav>
   <div class="topbar-spacer"></div>
     <div class="max-w-5xl mx-auto p-6">
       <h1 class="text-xl font-bold mb-4">用户管理</h1>
     <div class="mb-3 flex items-center gap-2">
-        <input id="q" class="border rounded p-2 text-sm" placeholder="搜索 email..." />
+        <input id="q" class="border rounded p-2 text-sm" placeholder="搜索 email..." aria-label="Search users by email" />
         <button id="btn-search" class="px-3 py-2 text-sm border rounded">搜索</button>
-        <div class="ml-auto flex items-center gap-2">
-          <button id="tab-local" class="px-3 py-2 text-sm border rounded bg-slate-200">本地用户</button>
-          <button id="tab-oauth" class="px-3 py-2 text-sm border rounded">OAuth 用户</button>
-      <button id="tab-tickets" class="px-3 py-2 text-sm border rounded">工单</button>
+        <div class="ml-auto flex items-center gap-2" role="tablist" aria-label="User tabs">
+          <button id="tab-local" class="px-3 py-2 text-sm border rounded bg-slate-200" role="tab" aria-selected="true" aria-controls="tbl-local">本地用户</button>
+          <button id="tab-oauth" class="px-3 py-2 text-sm border rounded" role="tab" aria-selected="false" aria-controls="tbl-oauth">OAuth 用户</button>
+      <button id="tab-tickets" class="px-3 py-2 text-sm border rounded" role="tab" aria-selected="false" aria-controls="tbl-tickets">工单</button>
         </div>
       </div>
-  <table class="w-full text-sm" id="tbl-local">
+  <div class="table-responsive">
+  <table class="w-full text-sm" id="tbl-local" role="tabpanel" aria-labelledby="tab-local">
         <thead>
           <tr class="text-left border-b">
-            <th class="py-2">ID</th>
-            <th>Email</th>
+            <th class="py-2" scope="col">ID</th>
+            <th scope="col">Email</th>
             <th>Admin</th>
             <th>Disabled</th>
   <th>本月用量</th>
@@ -50,11 +52,13 @@
         </thead>
         <tbody id="rows"></tbody>
       </table>
-  <table class="w-full text-sm hidden" id="tbl-oauth">
+  </div>
+  <div class="table-responsive">
+  <table class="w-full text-sm hidden" id="tbl-oauth" role="tabpanel" aria-labelledby="tab-oauth">
         <thead>
           <tr class="text-left border-b">
-            <th class="py-2">ID</th>
-            <th>Provider</th>
+            <th class="py-2" scope="col">ID</th>
+            <th scope="col">Provider</th>
             <th>Sub</th>
             <th>Email</th>
     <th>Disabled</th>
@@ -65,7 +69,8 @@
         </thead>
         <tbody id="rows-oauth"></tbody>
       </table>
-      <div id="tickets-panel" class="hidden">
+  </div>
+      <div id="tickets-panel" class="hidden" role="tabpanel" aria-labelledby="tab-tickets">
         <div id="tickets-list" class="rounded-xl rr-card p-4"></div>
       </div>
       <div class="mt-3 flex items-center gap-2" id="pager">
@@ -75,6 +80,42 @@
       </div>
     </div>
   <script>
+      // ── Modal utilities ──
+      function showAdminModal(title, bodyHtml, onConfirm) {
+        const overlay = document.getElementById('modal-overlay');
+        const titleEl = document.getElementById('modal-title');
+        const bodyEl = document.getElementById('modal-body');
+        const confirmBtn = document.getElementById('modal-confirm');
+        const cancelBtn = document.getElementById('modal-cancel');
+        const closeX = document.getElementById('modal-close-x');
+        titleEl.textContent = title;
+        bodyEl.innerHTML = bodyHtml;
+        overlay.classList.remove('hidden');
+        const close = () => { overlay.classList.add('hidden'); document.removeEventListener('keydown', escHandler); };
+        const escHandler = (e) => { if (e.key === 'Escape') close(); };
+        document.addEventListener('keydown', escHandler);
+        closeX.onclick = close;
+        cancelBtn.onclick = close;
+        overlay.onclick = (e) => { if (e.target === overlay) close(); };
+        confirmBtn.onclick = () => { close(); if (onConfirm) onConfirm(bodyEl); };
+        // Focus first input if present
+        const firstInput = bodyEl.querySelector('input,select');
+        if (firstInput) setTimeout(() => firstInput.focus(), 50);
+      }
+      function adminConfirm(title, msg, cb) {
+        showAdminModal(title, `<p>${msg}</p>`, cb);
+      }
+      function adminPrompt(title, fields, cb) {
+        const html = fields.map(f =>
+          `<label class="block mb-2 text-xs font-medium">${f.label}<input name="${f.name}" type="${f.type||'text'}" class="mt-1" placeholder="${f.placeholder||''}" value="${f.defaultValue||''}"/></label>`
+        ).join('');
+        showAdminModal(title, html, (bodyEl) => {
+          const vals = {};
+          fields.forEach(f => { vals[f.name] = bodyEl.querySelector(`[name="${f.name}"]`)?.value || ''; });
+          cb(vals);
+        });
+      }
+
       // topbar behavior
       (function(){
         const tb = document.getElementById('app-topbar');
@@ -108,6 +149,9 @@
         document.getElementById('tab-local').classList.toggle('bg-slate-200', tab==='local');
         document.getElementById('tab-oauth').classList.toggle('bg-slate-200', tab==='oauth');
         document.getElementById('tab-tickets').classList.toggle('bg-slate-200', tab==='tickets');
+        document.getElementById('tab-local').setAttribute('aria-selected', tab==='local');
+        document.getElementById('tab-oauth').setAttribute('aria-selected', tab==='oauth');
+        document.getElementById('tab-tickets').setAttribute('aria-selected', tab==='tickets');
         document.getElementById('pager').classList.toggle('hidden', tab==='tickets');
         page=1; load();
       }
@@ -120,7 +164,7 @@
         const base = tab==='local'? '/admin/users' : '/admin/oauth-users';
         const params = new URLSearchParams(); params.set('page', page); params.set('page_size', pageSize); if (q) params.set('query', q);
         const r = await apiFetch(`${base}?${params.toString()}`, { headers: authHeaders() }, { timeout: 20000 });
-        if (!r.ok){ alert('需要管理员登录'); return; }
+        if (!r.ok){ showToast('error', '需要管理员登录'); return; }
         const j = await r.json(); setPager(j);
         if (tab==='local'){
           const tb = document.getElementById('rows'); tb.innerHTML = '';
@@ -155,38 +199,48 @@
             btn1.onclick = async ()=>{
               if (u.disabled){
                 const r2 = await apiFetch(`/admin/users/${u.id}/enable`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }) });
-                if ((await r2.json()).ok) load();
+                if ((await r2.json()).ok) { showToast('success','已启用'); load(); }
               } else {
-                const reason = prompt('封禁原因（可选）：') || '';
-                const exp = prompt('到期时间（ISO，如 2025-12-31T23:59:00，留空为永久）：') || '';
-                const body = { reason: reason || null, expires_at: exp || null };
-                const r2 = await apiFetch(`/admin/users/${u.id}/disable`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify(body) });
-                const jr = await r2.json(); if (!jr.ok) return alert(jr.error||'失败'); load();
+                adminPrompt('封禁用户', [
+                  { name:'reason', label:'封禁原因（可选）', placeholder:'原因...' },
+                  { name:'expires', label:'到期时间（ISO，留空为永久）', placeholder:'2026-12-31T23:59:00' }
+                ], async (vals) => {
+                  const body = { reason: vals.reason || null, expires_at: vals.expires || null };
+                  const r2 = await apiFetch(`/admin/users/${u.id}/disable`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify(body) });
+                  const jr = await r2.json(); if (!jr.ok) return showToast('error', jr.error||'失败'); showToast('success','已禁用'); load();
+                });
               }
             };
             const btnReset = document.createElement('button'); btnReset.className='px-2 py-1 text-xs border rounded mr-2'; btnReset.textContent='重置密码';
             btnReset.onclick = async ()=>{
-              const pw = prompt('输入新密码：'); if (!pw) return;
-              const r4 = await apiFetch(`/admin/users/${u.id}/reset-password`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify({ password: pw }) });
-              const jr = await r4.json(); if (!jr.ok) alert(jr.error||'重置失败'); else alert('已重置');
+              adminPrompt('重置密码', [{ name:'pw', label:'新密码', type:'password', placeholder:'至少6位' }], async (vals) => {
+                if (!vals.pw) return;
+                const r4 = await apiFetch(`/admin/users/${u.id}/reset-password`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify({ password: vals.pw }) });
+                const jr = await r4.json(); if (!jr.ok) showToast('error', jr.error||'重置失败'); else showToast('success', '已重置');
+              });
             };
             const btnVip = document.createElement('button'); btnVip.className='px-2 py-1 text-xs border rounded mr-2'; btnVip.textContent='开通/续期 VIP';
             btnVip.onclick = async ()=>{
-              const daysStr = prompt('输入天数（如 30/90/365）：'); if (!daysStr) return; const days = parseInt(daysStr,10); if (!days || days<=0) return alert('无效天数');
-              const r5 = await apiFetch(`/admin/vip/grant`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify({ user_key: `local:${u.id}`, days }) });
-              const jr = await r5.json(); if (!jr.ok) return alert(jr.error||'失败'); alert('已更新 VIP'); load();
+              adminPrompt('开通/续期 VIP', [{ name:'days', label:'天数', type:'number', placeholder:'30 / 90 / 365' }], async (vals) => {
+                const days = parseInt(vals.days,10); if (!days || days<=0) return showToast('error','无效天数');
+                const r5 = await apiFetch(`/admin/vip/grant`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify({ user_key: `local:${u.id}`, days }) });
+                const jr = await r5.json(); if (!jr.ok) return showToast('error', jr.error||'失败'); showToast('success','已更新 VIP'); load();
+              });
             };
             const btnVipCancel = document.createElement('button'); btnVipCancel.className='px-2 py-1 text-xs border rounded mr-2'; btnVipCancel.textContent='取消 VIP';
             btnVipCancel.onclick = async ()=>{
-              if (!confirm('确认取消该用户 VIP？')) return;
-              const r6 = await apiFetch(`/admin/vip/cancel`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify({ user_key: `local:${u.id}` }) });
-              const jr = await r6.json(); if (!jr.ok) return alert(jr.error||'失败'); alert('已取消 VIP'); load();
+              adminConfirm('取消 VIP', '确认取消该用户 VIP？', async () => {
+                const r6 = await apiFetch(`/admin/vip/cancel`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify({ user_key: `local:${u.id}` }) });
+                const jr = await r6.json(); if (!jr.ok) return showToast('error', jr.error||'失败'); showToast('success','已取消 VIP'); load();
+              });
+            };
             };
             const btn2 = document.createElement('button'); btn2.className='px-2 py-1 text-xs border rounded text-red-600'; btn2.textContent='删除';
             btn2.onclick = async ()=>{
-              if (!confirm('确认删除该用户？')) return;
-              const r3 = await apiFetch(`/admin/users/${u.id}`, { method:'DELETE', headers: authHeaders() });
-              if ((await r3.json()).ok) load();
+              adminConfirm('删除用户', '确认删除该用户？此操作不可撤销。', async () => {
+                const r3 = await apiFetch(`/admin/users/${u.id}`, { method:'DELETE', headers: authHeaders() });
+                if ((await r3.json()).ok) { showToast('success','已删除'); load(); }
+              });
             };
             td.appendChild(btn1); td.appendChild(btnReset); td.appendChild(btnVip); td.appendChild(btnVipCancel); td.appendChild(btn2); tr.appendChild(td); tb.appendChild(tr);
           });
@@ -222,26 +276,32 @@
             btnDis.onclick = async ()=>{
               if (u.disabled){
                 const r2 = await apiFetch(`/admin/oauth-users/${u.id}/enable`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }) });
-                const jr = await r2.json(); if (!jr.ok) return alert(jr.error||'失败'); load();
+                const jr = await r2.json(); if (!jr.ok) return showToast('error', jr.error||'失败'); showToast('success','已启用'); load();
               } else {
-                const reason = prompt('封禁原因（可选）：') || '';
-                const exp = prompt('到期时间（ISO，如 2025-12-31T23:59:00，留空为永久）：') || '';
-                const body = { reason: reason || null, expires_at: exp || null };
-                const r2 = await apiFetch(`/admin/oauth-users/${u.id}/disable`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify(body) });
-                const jr = await r2.json(); if (!jr.ok) return alert(jr.error||'失败'); load();
+                adminPrompt('封禁用户', [
+                  { name:'reason', label:'封禁原因（可选）', placeholder:'原因...' },
+                  { name:'expires', label:'到期时间（ISO，留空为永久）', placeholder:'2026-12-31T23:59:00' }
+                ], async (vals) => {
+                  const body = { reason: vals.reason || null, expires_at: vals.expires || null };
+                  const r2 = await apiFetch(`/admin/oauth-users/${u.id}/disable`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify(body) });
+                  const jr = await r2.json(); if (!jr.ok) return showToast('error', jr.error||'失败'); showToast('success','已禁用'); load();
+                });
               }
             };
             const btnVip = document.createElement('button'); btnVip.className='px-2 py-1 text-xs border rounded mr-2'; btnVip.textContent='开通/续期 VIP';
             btnVip.onclick = async ()=>{
-              const daysStr = prompt('输入天数（如 30/90/365）：'); if (!daysStr) return; const days = parseInt(daysStr,10); if (!days || days<=0) return alert('无效天数');
-              const r5 = await apiFetch(`/admin/vip/grant`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify({ user_key: `${u.provider}:${u.sub}`, days }) });
-              const jr = await r5.json(); if (!jr.ok) return alert(jr.error||'失败'); alert('已更新 VIP'); load();
+              adminPrompt('开通/续期 VIP', [{ name:'days', label:'天数', type:'number', placeholder:'30 / 90 / 365' }], async (vals) => {
+                const days = parseInt(vals.days,10); if (!days || days<=0) return showToast('error','无效天数');
+                const r5 = await apiFetch(`/admin/vip/grant`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify({ user_key: `${u.provider}:${u.sub}`, days }) });
+                const jr = await r5.json(); if (!jr.ok) return showToast('error', jr.error||'失败'); showToast('success','已更新 VIP'); load();
+              });
             };
             const btnVipCancel = document.createElement('button'); btnVipCancel.className='px-2 py-1 text-xs border rounded mr-2'; btnVipCancel.textContent='取消 VIP';
             btnVipCancel.onclick = async ()=>{
-              if (!confirm('确认取消该用户 VIP？')) return;
-              const r6 = await apiFetch(`/admin/vip/cancel`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify({ user_key: `${u.provider}:${u.sub}` }) });
-              const jr = await r6.json(); if (!jr.ok) return alert(jr.error||'失败'); alert('已取消 VIP'); load();
+              adminConfirm('取消 VIP', '确认取消该用户 VIP？', async () => {
+                const r6 = await apiFetch(`/admin/vip/cancel`, { method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify({ user_key: `${u.provider}:${u.sub}` }) });
+                const jr = await r6.json(); if (!jr.ok) return showToast('error', jr.error||'失败'); showToast('success','已取消 VIP'); load();
+              });
             };
             tdOps.appendChild(btnDis); tdOps.appendChild(btnVip); tdOps.appendChild(btnVipCancel);
             const tdTime = document.createElement('td'); tdTime.className='py-2 text-xs'; tdTime.textContent = u.created_at;
@@ -286,12 +346,12 @@
         const btn = e.target.closest('[data-act="reply-send"]'); if(!btn) return;
         const id = btn.getAttribute('data-id');
         const input = document.querySelector(`input[data-act="reply-input"][data-id="${id}"]`);
-        const val = (input?.value||'').trim(); if(!val) return alert('请输入回复内容');
+        const val = (input?.value||'').trim(); if(!val) return showToast('info','请输入回复内容');
         btn.disabled = true; const prev = btn.textContent; btn.textContent = '发送...';
         try{
           const r = await apiFetch(`/support/tickets/${id}/replies`, { method:'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({ content: val }) });
-          const j = await r.json(); if(!j.ok) return alert(j.error||'发送失败');
-          input.value=''; loadTickets();
+          const j = await r.json(); if(!j.ok) return showToast('error', j.error||'发送失败');
+          input.value=''; showToast('success','已回复'); loadTickets();
         } finally { btn.disabled=false; btn.textContent = prev; }
       });
 
@@ -301,7 +361,8 @@
         sel.disabled = true;
         try{
           const r = await apiFetch(`/support/tickets/${id}/status`, { method:'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({ status }) });
-          const j = await r.json(); if(!j.ok) return alert(j.error||'更新失败');
+          const j = await r.json(); if(!j.ok) return showToast('error', j.error||'更新失败');
+          showToast('success','状态已更新');
         } finally { sel.disabled = false; }
       });
 
@@ -315,6 +376,19 @@
         document.getElementById('tab-tickets').onclick = ()=>switchTab('tickets');
       });
   </script>
+
+  <!-- Modal overlay -->
+  <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-card relative">
+      <button id="modal-close-x" class="absolute top-3 right-3 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-lg leading-none" aria-label="Close">&times;</button>
+      <div id="modal-title" class="font-semibold text-base mb-3 pr-6"></div>
+      <div id="modal-body" class="text-sm mb-4"></div>
+      <div class="flex justify-end gap-2">
+        <button id="modal-cancel" class="px-4 py-2 text-sm border rounded">取消</button>
+        <button id="modal-confirm" class="px-4 py-2 text-sm bg-emerald-600 text-white rounded">确认</button>
+      </div>
+    </div>
+  </div>
   <footer class="mt-10 py-6 text-center text-xs text-slate-500">©RUR1 INNOVATION & Skyru AI</footer>
   </body>
 </html>

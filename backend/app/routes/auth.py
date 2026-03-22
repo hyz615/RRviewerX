@@ -6,6 +6,7 @@ from ..core.jwt import sign_jwt
 from urllib.parse import urlencode
 from urllib.parse import urlparse, urlunparse, parse_qsl
 import json
+import logging
 from authlib.integrations.starlette_client import OAuth, OAuthError
 import os
 from sqlmodel import Session, select
@@ -20,10 +21,14 @@ from typing import Dict, Tuple
 import re
 import urllib.request
 import urllib.error
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
+logger = logging.getLogger("rrviewer.auth")
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 class LoginRequest(BaseModel):
@@ -77,7 +82,8 @@ class RegisterLocal(BaseModel):
 
 
 @router.post("/register")
-def register_local(payload: RegisterLocal, session: Session = Depends(get_session)):
+@limiter.limit("5/minute")
+def register_local(request: Request, payload: RegisterLocal, session: Session = Depends(get_session)):
     email = payload.email.strip().lower()
     if not email or not payload.password:
         return JSONResponse({"ok": False, "error": "Email and password required"}, status_code=400)
@@ -95,7 +101,7 @@ def register_local(payload: RegisterLocal, session: Session = Depends(get_sessio
     # Auto-grant 365-day VIP for newly registered local users
     try:
         user_key = f"local:{user.id}"
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         v = session.exec(select(Vip).where(Vip.user_key == user_key)).first()
         if not v:
             v = Vip(user_key=user_key, is_vip=True, expires_at=now + timedelta(days=365))
@@ -121,7 +127,8 @@ class LoginLocal(BaseModel):
 
 
 @router.post("/login-local")
-def login_local(payload: LoginLocal, session: Session = Depends(get_session)):
+@limiter.limit("10/minute")
+def login_local(request: Request, payload: LoginLocal, session: Session = Depends(get_session)):
     email = payload.email.strip().lower()
     # captcha required
     if not _verify_captcha(payload.captcha_id, payload.captcha_code):
@@ -130,8 +137,7 @@ def login_local(payload: LoginLocal, session: Session = Depends(get_session)):
     if not user:
         return JSONResponse({"ok": False, "error": "Invalid credentials"}, status_code=400)
     if user.disabled:
-        from datetime import datetime
-        if user.ban_expires_at and user.ban_expires_at < datetime.utcnow():
+        if user.ban_expires_at and user.ban_expires_at < datetime.now(timezone.utc):
             user.disabled = False; user.ban_reason=None; user.ban_expires_at=None; session.add(user); session.commit()
         else:
             return JSONResponse({"ok": False, "error": (user.ban_reason or "User disabled")}, status_code=403)
@@ -187,6 +193,7 @@ def _send_resend_email(to_email: str, subject: str, html: str) -> tuple[bool, st
         return False, str(e)
 
 @router.post("/forgot-password")
+@limiter.limit("3/minute")
 def forgot_password(payload: ForgotPayload, request: Request, session: Session = Depends(get_session)):
     email = (payload.email or "").strip().lower()
     if not email:
@@ -204,7 +211,7 @@ def forgot_password(payload: ForgotPayload, request: Request, session: Session =
     link = f"{front.rstrip('/')}/reset.html#token={tok}"
     html = (
         f"<div>\n"
-        f"  <p>点击以下链接重置密码（15分钟内有效）：</p>\n"
+        f"  <p>点击以下链接重置密码�?5分钟内有效）�?/p>\n"
         f"  <p><a href=\"{link}\">{link}</a></p>\n"
         f"  <hr/>\n"
         f"  <p>Click the link below to reset your password (valid for 15 minutes):</p>\n"
@@ -213,7 +220,7 @@ def forgot_password(payload: ForgotPayload, request: Request, session: Session =
     )
     ok, err = _send_resend_email(email, "重置密码", html)
     if not ok:
-        # 记录失败但仍返回 ok，避免泄露
+        # 记录失败但仍返回 ok，避免泄�?
         return {"ok": True, "warn": "email_failed"}
     return {"ok": True}
 
@@ -232,7 +239,7 @@ def reset_password(payload: ResetPayload, session: Session = Depends(get_session
     new_pw = payload.new_password or ""
     # Password strength: >=8, include lower/upper/digit
     if len(new_pw) < 8 or not re.search(r"[a-z]", new_pw) or not re.search(r"[A-Z]", new_pw) or not re.search(r"\d", new_pw):
-        return JSONResponse({"ok": False, "error": "密码强度不足：至少8位，需含大小写与数字 / Password too weak: min 8 chars incl. upper/lower/digit"}, status_code=400)
+        return JSONResponse({"ok": False, "error": "密码强度不足：至�?位，需含大小写与数�?/ Password too weak: min 8 chars incl. upper/lower/digit"}, status_code=400)
     user.password_hash = bcrypt.hashpw(new_pw.encode("utf-8"), bcrypt.gensalt()).decode()
     session.add(user); session.commit()
     return {"ok": True}
@@ -352,8 +359,7 @@ async def oauth_callback(provider: str, request: Request, response: Response, co
                 except Exception:
                     pass
             if ou and getattr(ou, 'disabled', False):
-                from datetime import datetime
-                if getattr(ou, 'ban_expires_at', None) and ou.ban_expires_at < datetime.utcnow():
+                if getattr(ou, 'ban_expires_at', None) and ou.ban_expires_at < datetime.now(timezone.utc):
                     ou.disabled=False; ou.ban_reason=None; ou.ban_expires_at=None; s.add(ou); s.commit()
                 else:
                     return JSONResponse({"ok": False, "error": (ou.ban_reason or "User disabled")}, status_code=403)
@@ -361,7 +367,7 @@ async def oauth_callback(provider: str, request: Request, response: Response, co
             try:
                 if created and ou:
                     user_key = f"{provider}:{sub}"
-                    now = datetime.utcnow()
+                    now = datetime.now(timezone.utc)
                     v = s.exec(select(Vip).where(Vip.user_key == user_key)).first()
                     if not v:
                         v = Vip(user_key=user_key, is_vip=True, expires_at=now + timedelta(days=365))

@@ -29,13 +29,13 @@
   </head>
   <body>
     <!-- Top bar -->
-  <div class="fixed top-0 left-0 right-0 z-10 topbar" id="app-topbar">
+  <nav class="fixed top-0 left-0 right-0 z-10 topbar" id="app-topbar" role="navigation" aria-label="Main navigation">
   <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
   <a href="workspace.html" class="flex items-center"><img src="assets/logo.png" alt="RRviewer" class="brand-logo" /></a>
         <div class="flex-1 flex items-center justify-center">
       <div class="px-3 py-1.5 rounded chip text-xs leading-tight flex flex-col items-center">
         <div class="flex items-center gap-2">
-                <span id="ai-dot" class="inline-block w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                <span id="ai-dot" class="inline-block w-2.5 h-2.5 rounded-full bg-amber-500" role="status" aria-label="AI status"></span>
                 <span id="ai-text">AI</span>
               </div>
         <div id="usage-top" class="text-[11px] leading-none text-slate-700 font-medium mt-0.5">
@@ -43,26 +43,28 @@
         </div>
       </div>
         </div>
-        <div class="flex items-center gap-3 text-sm">
+        <div class="flex items-center gap-2 md:gap-3 text-sm">
   <a href="support.html" class="text-xs underline flex items-center gap-1" data-i18n-title="menu_support_title" title="提交工单/需求">
-        <span>🎧</span><span data-i18n="menu_support">工单</span>
+        <span>🎧</span><span data-i18n="menu_support" class="hidden sm:inline">工单</span>
       </a>
   <span id="vip-badge-top" class="text-xs text-emerald-600"></span>
-  <a href="vip.html#extend" class="underline text-xs" data-i18n="vip_extend_free">Extend VIP for Free</a>
-      <button id="btn-dark" class="px-2 py-1 border border-slate-300 rounded" title="Dark mode">🌙</button>
-          <div class="flex items-center gap-1 text-xs">
-            <button id="lang-top-zh" type="button" class="px-2 py-1 border border-slate-300 rounded">中文</button>
-            <button id="lang-top-en" type="button" class="px-2 py-1 border border-slate-300 rounded">EN</button>
+  <a href="vip.html#extend" class="underline text-xs hidden md:inline" data-i18n="vip_extend_free">Extend VIP for Free</a>
+  <span class="hidden md:inline text-slate-300 dark:text-slate-600 select-none" aria-hidden="true">|</span>
+      <button id="btn-dark" class="px-2 py-1 border border-slate-300 rounded" title="Dark mode" aria-label="Toggle dark mode">🌙</button>
+          <div class="flex items-center gap-1 text-xs" role="group" aria-label="Language">
+            <button id="lang-top-zh" type="button" class="px-2 py-1 border border-slate-300 rounded" aria-label="切换中文">中文</button>
+            <button id="lang-top-en" type="button" class="px-2 py-1 border border-slate-300 rounded" aria-label="Switch to English">EN</button>
           </div>
-          <a id="link-login" href="index.html?login=1" class="underline" data-i18n="login_register">登录/注册</a>
-          <a id="link-logout" href="#" class="underline hidden" data-i18n="logout">退出</a>
+  <span class="hidden md:inline text-slate-300 dark:text-slate-600 select-none" aria-hidden="true">|</span>
+          <a id="link-login" href="index.html?login=1" class="underline text-xs" data-i18n="login_register">登录/注册</a>
+          <a id="link-logout" href="#" class="underline text-xs hidden" data-i18n="logout">退出</a>
         </div>
       </div>
-    </div>
+    </nav>
   <div class="topbar-spacer"></div>
-  <div class="max-w-6xl mx-auto grid md:grid-cols-12 gap-6 p-6">
+  <div class="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-6 p-4 md:p-6">
       <!-- Left column: Files + History -->
-      <div class="md:col-span-3 flex flex-col gap-6">
+      <div class="md:col-span-3 flex flex-col gap-4 md:gap-6 order-1 md:order-1">
       <!-- Files Box (bubbles) -->
       <section id="sec-files" class="rounded-xl rr-card p-5">
         <div id="files-login-mask" class="hidden chat-mask flex flex-col items-center justify-center text-center text-xs">
@@ -73,8 +75,8 @@
   <div class="flex items-center justify-between mb-1">
     <h2 class="font-semibold" data-i18n="files_title">文件</h2>
     <div class="flex items-center gap-2 text-slate-600">
-      <button id="btn-files-refresh" class="px-2 py-1 text-xs border rounded" title="刷新">🔄</button>
-      <button id="btn-files-clear" class="px-2 py-1 text-xs border rounded" title="清空">🗑️</button>
+      <button id="btn-files-refresh" class="px-2 py-1 text-xs border rounded" title="刷新" aria-label="Refresh file list">🔄</button>
+      <button id="btn-files-clear" class="px-2 py-1 text-xs border rounded" title="清空" aria-label="Clear all files">🗑️</button>
     </div>
   </div>
   <div class="text-[11px] text-slate-500 mb-2" data-i18n="files_click_to_select">单击文件气泡即可选中</div>
@@ -85,7 +87,7 @@
           <span id="sel-count" class="ml-auto text-xs text-slate-500">0</span>
         </div>
         <div class="flex items-center gap-2 mb-3">
-          <input id="url-input" type="url" class="flex-1 border rounded px-2 py-1 text-xs" data-i18n-placeholder="upload_url_placeholder" placeholder="例如：https://example.com/file.pdf" />
+          <input id="url-input" type="url" class="flex-1 border rounded px-2 py-1 text-xs" data-i18n-placeholder="upload_url_placeholder" placeholder="例如：https://example.com/file.pdf" aria-label="File URL" />
           <button id="btn-url-add" type="button" class="btn btn-secondary text-xs px-3 py-1.5 rounded" data-i18n="add_from_url">从链接添加</button>
         </div>
   <div id="files-inline-tip" class="text-[11px] text-slate-500 mb-2 hidden"></div>
@@ -115,7 +117,13 @@
           <a href="index.html?login=1" class="underline text-blue-600 dark:text-blue-400 text-xs" data-i18n="login_register">登录/注册</a>
         </div>
         <div id="history-content">
-        <h2 class="font-semibold mb-3" data-i18n="history_title">历史记录</h2>
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="font-semibold" data-i18n="history_title">历史记录</h2>
+          <button id="btn-history-fav-filter" type="button" class="text-xs px-2 py-1 border rounded" title="Show favorites" aria-label="Filter favorites">⭐</button>
+        </div>
+        <div class="mb-2">
+          <input id="history-search" type="text" class="w-full border rounded px-2 py-1 text-xs" data-i18n-placeholder="history_search_placeholder" placeholder="搜索历史记录..." aria-label="Search history" />
+        </div>
         <div id="history-box" class="flex flex-col gap-2 text-xs">
           <div id="history-empty" class="empty"><svg viewBox="0 0 24 24" fill="none"><path d="M12 8v5l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="history_empty">暂无历史记录</span></div>
         </div>
@@ -127,10 +135,10 @@
   </div>
 
       <!-- Generate -->
-  <section id="sec-generate" class="rounded-xl rr-card p-5 md:col-span-6">
-        <div class="flex items-center justify-between mb-3 gap-3">
+  <section id="sec-generate" class="rounded-xl rr-card p-4 md:p-5 md:col-span-6 order-2 md:order-2" role="main">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 gap-2 sm:gap-3">
     <h2 class="font-semibold" data-i18n="generate_title">生成复习提要</h2>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <select id="fmt" class="border p-2 rounded">
               <option value="review_sheet_pro" data-i18n-option="format_review_pro">复习单 Pro</option>
               <option value="qa" data-i18n-option="format_qa">问答 Q&A</option>
@@ -146,16 +154,22 @@
             </div>
           </div>
         </div>
-        <textarea id="src" class="w-full border rounded p-2 h-60" data-i18n-placeholder="input_or_paste" placeholder="输入或粘贴文本..."></textarea>
-        <div class="flex items-center justify-between mt-3">
+        <textarea id="src" class="w-full border rounded p-2 h-40 md:h-60 resize-y" data-i18n-placeholder="input_or_paste" placeholder="输入或粘贴文本..." aria-label="Source text"></textarea>
+        <div class="flex items-center justify-between mt-1">
+          <span id="draft-status"></span>
+          <span id="char-count" class="text-xs text-slate-400">0</span>
+        </div>
+        <div class="flex flex-wrap items-center justify-between mt-2 gap-2">
           <div class="text-xs text-slate-500" data-i18n="gen_tip">提示: 试着描述科目、范围、期望重点与难点，效果更佳。</div>
           <div class="flex items-center gap-2">
+            <span class="shortcut-hint hidden sm:inline-flex"><kbd>Ctrl</kbd>+<kbd>Enter</kbd></span>
             <span id="quota-gen" class="text-xs text-slate-500"></span>
             <button id="btn-gen" class="bg-emerald-600 text-white px-4 py-2 rounded" data-i18n="generate_btn">生成</button>
           </div>
         </div>
         <div class="mt-3 flex items-center gap-3">
           <div class="ml-auto flex items-center gap-2">
+            <button id="btn-copy-all" class="bg-sky-600 text-white px-3 py-1.5 rounded text-xs" data-i18n="copy_all">复制全文</button>
             <button id="btn-mock-test" class="bg-emerald-700 text-white px-3 py-1.5 rounded text-xs" data-i18n="mock_test">模拟测试</button>
             <button id="btn-export-pdf" class="bg-slate-500 text-white px-3 py-1.5 rounded text-xs" data-i18n="export_pdf">Export PDF</button>
           </div>
@@ -177,15 +191,17 @@
       </section>
 
       <!-- Chat -->
-  <section id="sec-chat" class="rounded-xl rr-card p-5 md:col-span-3">
+  <section id="sec-chat" class="rounded-xl rr-card p-4 md:p-5 md:col-span-3 order-3" role="complementary">
     <h2 class="font-semibold mb-3" data-i18n="ask_title">复习提要聊天</h2>
     <div id="chat-login-mask" class="hidden chat-mask flex flex-col items-center justify-center text-center text-xs">
       <div class="mb-2" data-i18n="chat_need_login">登录后才能使用聊天功能</div>
       <a href="index.html?login=1" class="underline text-blue-600 dark:text-blue-400 text-xs" data-i18n="login_register">登录/注册</a>
     </div>
-    <div id="chat-messages" class="chat-messages border rounded p-3 h-80 overflow-y-auto bg-white/60 dark:bg-slate-800/40 text-sm"></div>
+    <div id="chat-messages" class="chat-messages border rounded p-3 h-60 md:h-80 overflow-y-auto bg-white/60 dark:bg-slate-800/40 text-sm" role="log" aria-live="polite">
+      <div id="chat-empty" class="empty flex-col py-8"><svg viewBox="0 0 24 24" fill="none" class="w-8 h-8 opacity-40"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="text-xs" data-i18n="chat_empty">开始聊天…</span></div>
+    </div>
     <div class="mt-3">
-      <textarea id="q" class="w-full border rounded p-2 h-28 text-sm leading-snug resize-y" data-i18n-placeholder="ask_placeholder" placeholder="输入问题...(Enter发送 / Shift+Enter换行)"></textarea>
+      <textarea id="q" class="w-full border rounded p-2 h-20 md:h-28 text-sm leading-snug resize-y" data-i18n-placeholder="ask_placeholder" placeholder="输入问题...(Enter发送 / Shift+Enter换行)"></textarea>
       <div class="flex gap-2 mt-2 items-center">
         <button id="btn-ask" class="bg-emerald-600 text-white px-4 py-2 rounded text-sm" data-i18n="chat_send">发送</button>
         <button id="btn-clear-chat" class="bg-slate-500 text-white px-3 py-2 rounded text-xs" data-i18n="chat_clear">清空</button>
@@ -198,7 +214,40 @@
   <!-- Back to top floating button -->
   <button id="btn-back-top" class="back-to-top" title="Back to top" aria-label="Back to top">↑</button>
 
+  <!-- Modal overlay for confirmations -->
+  <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-card relative">
+      <button id="modal-close-x" class="absolute top-3 right-3 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-lg leading-none" aria-label="Close">&times;</button>
+      <div id="modal-title" class="font-semibold text-base mb-3 pr-6"></div>
+      <div id="modal-body" class="text-sm mb-4"></div>
+      <div class="flex justify-end gap-2">
+        <button id="modal-cancel" class="px-4 py-2 text-sm border rounded" data-i18n="cancel">取消</button>
+        <button id="modal-confirm" class="px-4 py-2 text-sm bg-emerald-600 text-white rounded">确认</button>
+      </div>
+    </div>
+  </div>
+
     <script>
+      // ── Modal utility ──
+      function showModal(title, bodyHtml, onConfirm) {
+        const overlay = document.getElementById('modal-overlay');
+        const titleEl = document.getElementById('modal-title');
+        const bodyEl = document.getElementById('modal-body');
+        const confirmBtn = document.getElementById('modal-confirm');
+        const cancelBtn = document.getElementById('modal-cancel');
+        const closeX = document.getElementById('modal-close-x');
+        titleEl.textContent = title;
+        bodyEl.innerHTML = bodyHtml;
+        overlay.classList.remove('hidden');
+        const close = () => { overlay.classList.add('hidden'); document.removeEventListener('keydown', escHandler); };
+        const escHandler = (e) => { if (e.key === 'Escape') close(); };
+        document.addEventListener('keydown', escHandler);
+        closeX.onclick = close;
+        cancelBtn.onclick = close;
+        overlay.onclick = (e) => { if (e.target === overlay) close(); };
+        confirmBtn.onclick = () => { close(); if (onConfirm) onConfirm(bodyEl); };
+      }
+
       function applyHeadingNumbering(root, enable){
         try{
           const container = root instanceof HTMLElement ? root : document.querySelector(root);
@@ -623,58 +672,115 @@
 
         // load history if logged in
         if (isLoggedIn()){
-          try{
-            const r = await apiFetch('/history?limit=20', { method:'GET', headers: authHeaders() });
-            const j = await r.json();
-            const hb = document.getElementById('history-box');
-            const he = document.getElementById('history-empty');
-            const moreWrap = document.getElementById('history-more');
-            const toggleBtn = document.getElementById('btn-history-toggle');
-            if (j.ok && Array.isArray(j.items) && j.items.length){
-              he.style.display = 'none';
-              const items = j.items;
-              const MAX_DEFAULT = 10;
-              let expanded = false;
-              function render(limit){
-                // clear rows except empty
-                hb.querySelectorAll('.hist-row').forEach(n=>n.remove());
-                const slice = items.slice(0, limit);
-                slice.forEach(it=>{
-                  const row = document.createElement('div');
-                  row.className = 'hist-row p-2 border rounded hover:bg-emerald-50 cursor-pointer flex items-center gap-2';
-                  const tag = document.createElement('span'); tag.className='text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600'; tag.textContent = it.kind;
-                  const txt = document.createElement('span'); txt.className='flex-1 truncate text-slate-700'; txt.textContent = it.preview || '';
-                  const btn = document.createElement('button'); btn.type='button'; btn.className='text-sky-700 underline'; btn.dataset.i18n='restore'; btn.textContent=(window.__i18n__?__i18n__.t('restore'):'恢复');
-                  btn.onclick = async (e)=>{
-                    e.stopPropagation();
-                    const r2 = await apiFetch(`/history/${it.id}`, { method:'GET', headers: authHeaders() });
-                    const j2 = await r2.json();
-                    if (j2.ok){ lastText = j2.text || ''; lastFmt = it.kind || 'review_sheet_pro'; sessionStorage.setItem('review_id', String(it.id)); renderOutput(); showToast('success','Loaded'); }
-                  };
-                  row.onclick = btn.onclick;
-                  row.appendChild(tag); row.appendChild(txt); row.appendChild(btn); hb.appendChild(row);
-                });
-                // show/hide the more toggle
-                if (items.length > MAX_DEFAULT){
-                  moreWrap.classList.remove('hidden');
-                  toggleBtn.dataset.i18n = expanded ? 'history_show_less' : 'history_show_more';
-                  toggleBtn.textContent = window.__i18n__ ? __i18n__.t(expanded ? 'history_show_less' : 'history_show_more') : (expanded? '收起':'展开更多');
-                } else {
-                  moreWrap.classList.add('hidden');
-                }
-                if (window.__i18n__) __i18n__.applyI18n();
-              }
-              render(MAX_DEFAULT);
-              if (items.length > MAX_DEFAULT){
-                toggleBtn.onclick = ()=>{
-                  expanded = !expanded;
-                  render(expanded ? items.length : MAX_DEFAULT);
-                };
-              }
-            }
-          }catch(e){}
+          loadHistory();
+          // Wire search & favorite filter
+          let _histSearchTimer = null;
+          const histSearch = document.getElementById('history-search');
+          const histFavBtn = document.getElementById('btn-history-fav-filter');
+          let _histFavOnly = false;
+          if (histSearch){
+            histSearch.addEventListener('input', ()=>{
+              clearTimeout(_histSearchTimer);
+              _histSearchTimer = setTimeout(()=> loadHistory(histSearch.value.trim(), _histFavOnly), 300);
+            });
+          }
+          if (histFavBtn){
+            histFavBtn.onclick = ()=>{
+              _histFavOnly = !_histFavOnly;
+              histFavBtn.style.opacity = _histFavOnly ? 1 : 0.5;
+              loadHistory(histSearch ? histSearch.value.trim() : '', _histFavOnly);
+            };
+            histFavBtn.style.opacity = 0.5;
+          }
         }
       });
+
+      async function loadHistory(searchQ, favOnly){
+        searchQ = searchQ || '';
+        favOnly = !!favOnly;
+        const hb = document.getElementById('history-box');
+        if (hb) hb.classList.add('loading');
+        try{
+          let url = '/history?limit=50';
+          if (searchQ) url += '&q=' + encodeURIComponent(searchQ);
+          if (favOnly) url += '&fav=true';
+          const r = await apiFetch(url, { method:'GET', headers: authHeaders() });
+          const j = await r.json();
+          const he = document.getElementById('history-empty');
+          const moreWrap = document.getElementById('history-more');
+          const toggleBtn = document.getElementById('btn-history-toggle');
+          // clear existing
+          hb.querySelectorAll('.hist-row').forEach(n=>n.remove());
+          if (j.ok && Array.isArray(j.items) && j.items.length){
+            he.style.display = 'none';
+            const items = j.items;
+            const MAX_DEFAULT = 10;
+            let expanded = false;
+            function render(limit){
+              hb.querySelectorAll('.hist-row').forEach(n=>n.remove());
+              const slice = items.slice(0, limit);
+              slice.forEach(it=>{
+                const row = document.createElement('div');
+                row.className = 'hist-row p-2 border rounded hover:bg-emerald-50 cursor-pointer flex items-center gap-2';
+                // Favorite star
+                const star = document.createElement('button');
+                star.type='button'; star.className='text-xs flex-shrink-0'; star.textContent = it.is_favorite ? '⭐' : '☆';
+                star.title = it.is_favorite ? 'Unfavorite' : 'Favorite';
+                star.onclick = async (e)=>{
+                  e.stopPropagation();
+                  try{
+                    const r3 = await apiFetch(`/history/${it.id}/favorite`, { method:'POST', headers: authHeaders() });
+                    const j3 = await r3.json();
+                    if (j3.ok){ it.is_favorite = j3.is_favorite; star.textContent = j3.is_favorite ? '⭐' : '☆'; }
+                  }catch(_){}
+                };
+                const tag = document.createElement('span'); tag.className='text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600'; tag.textContent = it.kind;
+                const txt = document.createElement('span'); txt.className='flex-1 truncate text-slate-700'; txt.textContent = it.preview || '';
+                const btn = document.createElement('button'); btn.type='button'; btn.className='text-sky-700 underline flex-shrink-0'; btn.textContent=(window.__i18n__?__i18n__.t('restore'):'恢复');
+                btn.onclick = async (e)=>{
+                  e.stopPropagation();
+                  const r2 = await apiFetch(`/history/${it.id}`, { method:'GET', headers: authHeaders() });
+                  const j2 = await r2.json();
+                  if (j2.ok){ lastText = j2.text || ''; lastFmt = it.kind || 'review_sheet_pro'; sessionStorage.setItem('review_id', String(it.id)); renderOutput(); showToast('success','Loaded'); }
+                };
+                // Delete button
+                const delBtn = document.createElement('button');
+                delBtn.type='button'; delBtn.className='text-red-500 text-xs flex-shrink-0'; delBtn.textContent='✕'; delBtn.title='Delete';
+                delBtn.onclick = async (e)=>{
+                  e.stopPropagation();
+                  try{
+                    const r4 = await apiFetch(`/history/${it.id}`, { method:'DELETE', headers: authHeaders() });
+                    const j4 = await r4.json();
+                    if (j4.ok){ row.remove(); showToast('success','Deleted'); }
+                  }catch(_){}
+                };
+                row.onclick = btn.onclick;
+                row.appendChild(star); row.appendChild(tag); row.appendChild(txt); row.appendChild(btn); row.appendChild(delBtn); hb.appendChild(row);
+              });
+              if (items.length > MAX_DEFAULT){
+                moreWrap.classList.remove('hidden');
+                toggleBtn.dataset.i18n = expanded ? 'history_show_less' : 'history_show_more';
+                toggleBtn.textContent = window.__i18n__ ? __i18n__.t(expanded ? 'history_show_less' : 'history_show_more') : (expanded? '收起':'展开更多');
+              } else {
+                moreWrap.classList.add('hidden');
+              }
+              if (window.__i18n__) __i18n__.applyI18n();
+            }
+            render(MAX_DEFAULT);
+            if (items.length > MAX_DEFAULT){
+              toggleBtn.onclick = ()=>{
+                expanded = !expanded;
+                render(expanded ? items.length : MAX_DEFAULT);
+              };
+            }
+          } else {
+            he.style.display = '';
+            moreWrap.classList.add('hidden');
+          }
+        }catch(e){}finally{
+          if (hb) hb.classList.remove('loading');
+        }
+      }
 
       // length selector wiring
       (function(){
@@ -732,14 +838,16 @@
       }
       if (btnFilesRefresh){ btnFilesRefresh.onclick = ()=> reloadFiles(); }
       if (btnFilesClear){
-        btnFilesClear.onclick = async ()=>{
-          if (!confirm(window.__i18n__?__i18n__.t('confirm_clear_files'):'确认清空已上传文件列表？')) return;
-          try{
-            const r = await apiFetch('/upload/all', { method:'DELETE', headers: authHeaders({ 'Content-Type':'application/json' }) });
-            const j = await r.json();
-            if (j && j.ok){ filesBox.innerHTML=''; fileIdToName.clear(); showToast('success', (window.__i18n__?__i18n__.t('cleared'):'已清空')); }
-            else { showToast('error', (j && j.error) || (window.__i18n__?__i18n__.t('operation_failed'):'操作失败')); }
-          }catch(e){ showToast('error', (window.__i18n__?__i18n__.t('network_error'):'网络错误')); }
+        btnFilesClear.onclick = ()=>{
+          const msg = window.__i18n__?__i18n__.t('confirm_clear_files'):'确认清空已上传文件列表？';
+          showModal(msg, '', async ()=>{
+            try{
+              const r = await apiFetch('/upload/all', { method:'DELETE', headers: authHeaders({ 'Content-Type':'application/json' }) });
+              const j = await r.json();
+              if (j && j.ok){ filesBox.innerHTML=''; fileIdToName.clear(); showToast('success', (window.__i18n__?__i18n__.t('cleared'):'已清空')); }
+              else { showToast('error', (j && j.error) || (window.__i18n__?__i18n__.t('operation_failed'):'操作失败')); }
+            }catch(e){ showToast('error', (window.__i18n__?__i18n__.t('network_error'):'网络错误')); }
+          });
         };
       }
       // 支持多文件选择与上传
@@ -1081,6 +1189,12 @@
       function escapeHtmlChat(s){ return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
       function renderChat(){
         const t=(k)=>window.__i18n__?__i18n__.t(k):k;
+        const emptyEl = document.getElementById('chat-empty');
+        if (chatMessages.length === 0) {
+          if (emptyEl) emptyEl.style.display = '';
+          return;
+        }
+        if (emptyEl) emptyEl.style.display = 'none';
         chatBox.innerHTML = chatMessages.map((m,idx)=>{
           const role=m.role;
           let refsHtml='';
@@ -1168,8 +1282,10 @@
       });
       const clearBtn = document.getElementById('btn-clear-chat');
       clearBtn.onclick = ()=>{
-        if(!confirm(window.__i18n__?__i18n__.t('chat_confirm_clear'):'确认清空所有对话？')) return;
-        chatMessages=[]; saveChat(); renderChat();
+        const msg = window.__i18n__?__i18n__.t('chat_confirm_clear'):'确认清空所有对话？';
+        showModal(msg, '', ()=>{
+          chatMessages=[]; saveChat(); renderChat();
+        });
       };
       // batch demo -> sequential
       chatBox.addEventListener('click', e=>{
@@ -1511,6 +1627,71 @@
         updateSelectionBadge();
         renderSelectedList();
       };
+
+      // ── Keyboard shortcut: Ctrl+Enter / Cmd+Enter to generate ──
+      document.getElementById('src').addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          e.preventDefault();
+          if (!genBtn.disabled) genBtn.click();
+        }
+      });
+
+      // ── Character counter ──
+      {
+        const srcEl = document.getElementById('src');
+        const countEl = document.getElementById('char-count');
+        const update = () => { if (countEl) countEl.textContent = srcEl.value.length; };
+        srcEl.addEventListener('input', update);
+        update();
+      }
+
+      // ── Copy all generated content ──
+      document.getElementById('btn-copy-all').onclick = () => {
+        if (!lastText || !lastText.trim()) {
+          showToast('info', window.__i18n__ ? __i18n__.t('export_no_content') : '暂无内容可导出');
+          return;
+        }
+        navigator.clipboard.writeText(lastText).then(() => {
+          showToast('success', window.__i18n__ ? __i18n__.t('copied') : '已复制');
+        }).catch(() => {
+          showToast('error', 'Copy failed');
+        });
+      };
+
+      // ── Auto-save draft to localStorage ──
+      {
+        const DRAFT_KEY = 'rr_draft';
+        const srcEl = document.getElementById('src');
+        const draftEl = document.getElementById('draft-status');
+        let _draftTimer = null;
+        let _draftFadeTimer = null;
+        function showDraftSaved() {
+          if (!draftEl) return;
+          draftEl.textContent = window.__i18n__ ? __i18n__.t('draft_saved') : '✓ 草稿已保存';
+          draftEl.classList.add('show');
+          clearTimeout(_draftFadeTimer);
+          _draftFadeTimer = setTimeout(() => draftEl.classList.remove('show'), 2000);
+        }
+        // Restore draft on load
+        const saved = localStorage.getItem(DRAFT_KEY);
+        if (saved && !srcEl.value.trim()) {
+          srcEl.value = saved;
+          showToast('info', window.__i18n__ ? __i18n__.t('draft_restored') : '已恢复草稿');
+        }
+        // Debounced save (500ms)
+        srcEl.addEventListener('input', () => {
+          clearTimeout(_draftTimer);
+          _draftTimer = setTimeout(() => {
+            try { localStorage.setItem(DRAFT_KEY, srcEl.value); showDraftSaved(); } catch(_){}
+          }, 500);
+        });
+        // Clear draft after successful generation
+        const origOnclick = genBtn.onclick;
+        genBtn.onclick = async () => {
+          await origOnclick();
+          if (lastText) { try { localStorage.removeItem(DRAFT_KEY); } catch(_){} }
+        };
+      }
     </script>
     <style>
       @media print {

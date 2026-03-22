@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import Session, select
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from ..core.db import get_session
 from ..core.deps import get_user_key, get_current_user
 from ..models.models import Vip
@@ -20,7 +20,7 @@ def purchase_demo(body: PurchaseDemo, user_key: str | None = Depends(get_user_ke
     if not user_key or uid is None:
         raise HTTPException(status_code=401, detail="Login required")
     days = 30 if body.plan == "vip_30" else 90 if body.plan == "vip_90" else 365
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     v = session.exec(select(Vip).where(Vip.user_key == user_key)).first()
     if not v:
         v = Vip(user_key=user_key, is_vip=True, expires_at=now + timedelta(days=days))
@@ -102,7 +102,7 @@ async def stripe_webhook(request: Request, session: Session = Depends(get_sessio
             user_key = meta.get("user_key")
             plan = meta.get("plan")
             days = 30 if plan == "30" else 90 if plan == "90" else 365
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             if user_key:
                 v = session.exec(select(Vip).where(Vip.user_key == user_key)).first()
                 if not v:

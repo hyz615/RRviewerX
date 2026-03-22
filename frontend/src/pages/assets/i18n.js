@@ -227,6 +227,15 @@
   gen_stage_refine: '去重与精修…',
   generate_done: '完成',
   generate_failed: '生成失败',
+  history_search_placeholder: '搜索历史记录...',
+  favorite: '收藏',
+  unfavorite: '取消收藏',
+  deleted: '已删除',
+  draft_restored: '已恢复草稿',
+  draft_saved: '✓ 草稿已保存',
+  copy_all: '复制全文',
+  copied: '已复制',
+  confirm_delete_history: '确认删除此记录？',
     },
     en: {
   app_name: 'RRviewer',
@@ -455,6 +464,15 @@
   gen_stage_refine: 'De-duplicating & polishing…',
   generate_done: 'Done',
   generate_failed: 'Generation failed',
+  history_search_placeholder: 'Search history...',
+  favorite: 'Favorite',
+  unfavorite: 'Unfavorite',
+  deleted: 'Deleted',
+  draft_restored: 'Draft restored',
+  draft_saved: '✓ Draft saved',
+  copy_all: 'Copy all',
+  copied: 'Copied',
+  confirm_delete_history: 'Delete this record?',
     }
   };
 

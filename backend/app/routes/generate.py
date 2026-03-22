@@ -9,7 +9,7 @@ from ..services.agent_service import generate_review, generate_review_pro_agent_
 from starlette.concurrency import run_in_threadpool
 from ..core.config import settings
 from ..models.models import ReviewSheet, FileMeta, Vip, MonthlyUsage
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from sqlmodel import select
 from ..services.file_service import sniff_and_read
 from typing import List
@@ -32,8 +32,8 @@ async def generate(payload: GenerateRequest, response: Response, _ctx=Depends(re
     # Usage accounting: always count for authenticated users; only non-VIP enforce limit
     if user_key:
         vip = session.exec(select(Vip).where(Vip.user_key == user_key)).first()
-        is_vip = bool(vip and vip.is_vip and (vip.expires_at is None or vip.expires_at > datetime.utcnow()))
-        now = datetime.utcnow()
+        is_vip = bool(vip and vip.is_vip and (vip.expires_at is None or vip.expires_at > datetime.now(timezone.utc)))
+        now = datetime.now(timezone.utc)
         mu = session.exec(select(MonthlyUsage).where(MonthlyUsage.user_key == user_key, MonthlyUsage.year == now.year, MonthlyUsage.month == now.month)).first()
         if not mu:
             mu = MonthlyUsage(user_key=user_key, year=now.year, month=now.month, count=0)
@@ -42,12 +42,12 @@ async def generate(payload: GenerateRequest, response: Response, _ctx=Depends(re
             limit = getattr(settings, 'FREE_MONTHLY_LIMIT', 5)
             if mu.count + 1 > limit:
                 return {"ok": False, "error": f"Monthly limit reached for non-VIP users ({limit})."}
-        mu.count += 1; mu.updated_at = datetime.utcnow(); session.add(mu); session.commit()
+        mu.count += 1; mu.updated_at = datetime.now(timezone.utc); session.add(mu); session.commit()
     fmt = payload.format.lower()
     # Enforce long-length restriction for non-VIP
     if (payload.length or 'short').lower() == 'long' and user_key:
         vip = session.exec(select(Vip).where(Vip.user_key == user_key)).first()
-        is_vip = bool(vip and vip.is_vip and (vip.expires_at is None or vip.expires_at > datetime.utcnow()))
+        is_vip = bool(vip and vip.is_vip and (vip.expires_at is None or vip.expires_at > datetime.now(timezone.utc)))
         if not is_vip:
             return {"ok": False, "error": "Long length generation requires VIP."}
     text = (payload.text or "").strip()
@@ -155,7 +155,7 @@ async def generate_stream(payload: GenerateRequest, _ctx=Depends(require_auth_or
     # Restrict: non-VIP cannot use long length
     if user_key:
         vip = session.exec(select(Vip).where(Vip.user_key == user_key)).first()
-        is_vip = bool(vip and vip.is_vip and (vip.expires_at is None or vip.expires_at > datetime.utcnow()))
+        is_vip = bool(vip and vip.is_vip and (vip.expires_at is None or vip.expires_at > datetime.now(timezone.utc)))
         if not is_vip:
             async def _vip_only():
                 yield _sse_event("error", "Long length generation requires VIP.")
@@ -165,8 +165,8 @@ async def generate_stream(payload: GenerateRequest, _ctx=Depends(require_auth_or
     # Monthly usage accounting (streaming counts as 1): always count; only non-VIP enforce limit
     if user_key:
         vip = session.exec(select(Vip).where(Vip.user_key == user_key)).first()
-        is_vip = bool(vip and vip.is_vip and (vip.expires_at is None or vip.expires_at > datetime.utcnow()))
-        now = datetime.utcnow()
+        is_vip = bool(vip and vip.is_vip and (vip.expires_at is None or vip.expires_at > datetime.now(timezone.utc)))
+        now = datetime.now(timezone.utc)
         mu = session.exec(select(MonthlyUsage).where(MonthlyUsage.user_key == user_key, MonthlyUsage.year == now.year, MonthlyUsage.month == now.month)).first()
         if not mu:
             mu = MonthlyUsage(user_key=user_key, year=now.year, month=now.month, count=0)
@@ -178,7 +178,7 @@ async def generate_stream(payload: GenerateRequest, _ctx=Depends(require_auth_or
                     yield _sse_event("error", f"Monthly limit reached for non-VIP users ({limit}).")
                     yield _sse_event("done", "")
                 return StreamingResponse(_limit(), media_type="text/event-stream")
-        mu.count += 1; mu.updated_at = datetime.utcnow(); session.add(mu); session.commit()
+        mu.count += 1; mu.updated_at = datetime.now(timezone.utc); session.add(mu); session.commit()
 
     # Reuse file reading logic from non-stream endpoint: support source_ids/source_id/text
     text = (payload.text or "").strip()

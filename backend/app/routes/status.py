@@ -3,10 +3,8 @@ from ..core.config import settings
 from ..core.deps import get_user_key
 from ..core.db import get_session
 from sqlmodel import Session, select
-from datetime import date, datetime
-from ..models.models import Vip, UsageCounter
+from datetime import date, datetime, timezone
 from ..models.models import Vip, MonthlyUsage
-from datetime import date, datetime
 
 router = APIRouter()
 
@@ -32,12 +30,12 @@ def quota_status(user_key: str | None = Depends(get_user_key), session: Session 
     if not user_key:
         return {"ok": True, "vip": False, "used": 0, "remaining": 5, "limit": 5}
     # Compute current month used count
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     mu = session.exec(select(MonthlyUsage).where(MonthlyUsage.user_key == user_key, MonthlyUsage.year == now.year, MonthlyUsage.month == now.month)).first()
     used = mu.count if mu else 0
     # VIP status
     vip = session.exec(select(Vip).where(Vip.user_key == user_key)).first()
-    is_vip = bool(vip and vip.is_vip and (vip.expires_at is None or vip.expires_at > datetime.utcnow()))
+    is_vip = bool(vip and vip.is_vip and (vip.expires_at is None or vip.expires_at > datetime.now(timezone.utc)))
     if is_vip:
         return {
             "ok": True,
