@@ -168,6 +168,10 @@
         const j = await r.json(); setPager(j);
         if (tab==='local'){
           const tb = document.getElementById('rows'); tb.innerHTML = '';
+          if (!(j.items||[]).length) {
+            tb.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-sm text-slate-500">暂无本地用户</td></tr>';
+            return;
+          }
           (j.items||[]).forEach(u=>{
             const tr = document.createElement('tr'); tr.className='border-b';
             tr.innerHTML = `<td class="py-2">${u.id}</td><td>${u.email}</td><td>${u.is_admin?'Yes':'No'}</td><td>${u.disabled?'Yes':'No'}${u.ban_reason?`<div class='text-xs text-red-700'>${u.ban_reason}${u.ban_expires_at?`（至 ${u.ban_expires_at}）`:''}</div>`:''}</td>`;
@@ -234,7 +238,6 @@
                 const jr = await r6.json(); if (!jr.ok) return showToast('error', jr.error||'失败'); showToast('success','已取消 VIP'); load();
               });
             };
-            };
             const btn2 = document.createElement('button'); btn2.className='px-2 py-1 text-xs border rounded text-red-600'; btn2.textContent='删除';
             btn2.onclick = async ()=>{
               adminConfirm('删除用户', '确认删除该用户？此操作不可撤销。', async () => {
@@ -246,6 +249,10 @@
           });
         } else {
           const tb = document.getElementById('rows-oauth'); tb.innerHTML = '';
+          if (!(j.items||[]).length) {
+            tb.innerHTML = '<tr><td colspan="8" class="py-6 text-center text-sm text-slate-500">暂无 OAuth 用户</td></tr>';
+            return;
+          }
           (j.items||[]).forEach(u=>{
             const tr = document.createElement('tr'); tr.className='border-b';
             tr.innerHTML = `<td class="py-2">${u.id}</td><td>${u.provider}</td><td>${u.sub}</td><td>${u.email||''}</td><td>${u.disabled?'Yes':'No'}${u.ban_reason?`<div class='text-xs text-red-700'>${u.ban_reason}${u.ban_expires_at?`（至 ${u.ban_expires_at}）`:''}</div>`:''}</td>`;
