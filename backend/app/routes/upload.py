@@ -226,7 +226,9 @@ async def upload_file(
         return {"ok": False, "error": "No file or text provided"}
 
     # return file_id for referencing later (drag-to-generate etc.)
-    resp = {"ok": True, "meta": meta, "chars": len(content), "content": content}
+    # Only include content for guest/trial users (no file_id) who need it for
+    # in-browser session sources. For persisted files, content lives on the server.
+    resp = {"ok": True, "meta": meta, "chars": len(content)}
     if subject_code:
         resp["subject_code"] = subject_code
     if course_name:
@@ -235,8 +237,11 @@ async def upload_file(
         if 'fm' in locals() and fm and fm.id:
             resp["file_id"] = fm.id
             resp["chapter_matches"] = chapter_matches
+        else:
+            # Guest/trial: include content so it can be used in-session
+            resp["content"] = content
     except Exception:
-        pass
+        resp["content"] = content
     return resp
 
 

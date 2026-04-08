@@ -44,7 +44,36 @@
   }
 
   function writeJSON(key, value) {
-    STORE.setItem(key, JSON.stringify(value));
+    try {
+      STORE.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      // Quota exceeded — trim content from session sources and retry
+      if (e && e.name === 'QuotaExceededError') {
+        try {
+          var slim = JSON.parse(JSON.stringify(value));
+          trimSessionMap(slim);
+          STORE.setItem(key, JSON.stringify(slim));
+        } catch (_) {
+          // Last resort: clear this key so the app doesn't get stuck
+          STORE.removeItem(key);
+        }
+      }
+    }
+  }
+
+  // Strip bulky content from session sources to fit within storage quota
+  function trimSessionMap(map) {
+    if (!map || typeof map !== 'object') return;
+    Object.keys(map).forEach(function (key) {
+      var bucket = map[key];
+      if (!bucket || !Array.isArray(bucket.sources)) return;
+      bucket.sources.forEach(function (src) {
+        if (src.kind === 'session' && src.content && src.content.length > 2000) {
+          src.content = src.content.slice(0, 2000);
+          src.chars = src.content.length;
+        }
+      });
+    });
   }
 
   function cleanOptionalText(value) {
