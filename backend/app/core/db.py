@@ -87,6 +87,28 @@ def _sqlite_ensure_columns() -> None:
                 cols_rs = {row[1] for row in res5.fetchall()}
                 if "is_favorite" not in cols_rs:
                     conn.exec_driver_sql("ALTER TABLE reviewsheet ADD COLUMN is_favorite INTEGER DEFAULT 0")
+                if "subject_code" not in cols_rs:
+                    conn.exec_driver_sql("ALTER TABLE reviewsheet ADD COLUMN subject_code TEXT")
+                if "course_name" not in cols_rs:
+                    conn.exec_driver_sql("ALTER TABLE reviewsheet ADD COLUMN course_name TEXT")
+                if "exam_type" not in cols_rs:
+                    conn.exec_driver_sql("ALTER TABLE reviewsheet ADD COLUMN exam_type TEXT")
+                if "exam_name" not in cols_rs:
+                    conn.exec_driver_sql("ALTER TABLE reviewsheet ADD COLUMN exam_name TEXT")
+                if "selected_chapter_ids" not in cols_rs:
+                    conn.exec_driver_sql("ALTER TABLE reviewsheet ADD COLUMN selected_chapter_ids TEXT")
+                if "selected_chapter_labels" not in cols_rs:
+                    conn.exec_driver_sql("ALTER TABLE reviewsheet ADD COLUMN selected_chapter_labels TEXT")
+            except Exception:
+                pass
+            # FileMeta table: ensure subject-mode columns
+            try:
+                res6 = conn.exec_driver_sql("PRAGMA table_info(filemeta)")
+                cols_fm = {row[1] for row in res6.fetchall()}
+                if "subject_code" not in cols_fm:
+                    conn.exec_driver_sql("ALTER TABLE filemeta ADD COLUMN subject_code TEXT")
+                if "course_name" not in cols_fm:
+                    conn.exec_driver_sql("ALTER TABLE filemeta ADD COLUMN course_name TEXT")
             except Exception:
                 pass
     except Exception:

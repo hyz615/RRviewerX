@@ -1,6 +1,7 @@
 from typing import Optional
 from datetime import datetime, date, timezone
 from sqlmodel import SQLModel, Field
+from sqlalchemy import UniqueConstraint
 
 
 def _utcnow() -> datetime:
@@ -43,6 +44,59 @@ class FileMeta(SQLModel, table=True):
     content_type: Optional[str] = None
     size: int = 0
     stored_path: Optional[str] = None
+    subject_code: Optional[str] = Field(default=None, index=True)
+    course_name: Optional[str] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class Course(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("user_id", "subject_code", "course_name", name="ux_course_user_subject_course"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    subject_code: Optional[str] = Field(default=None, index=True)
+    course_name: str = Field(index=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class CourseUnit(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("course_id", "order_index", name="ux_courseunit_course_order"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    course_id: int = Field(index=True, foreign_key="course.id")
+    title: str
+    order_index: int = Field(default=0, index=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class CourseChapter(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("unit_id", "order_index", name="ux_coursechapter_unit_order"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    course_id: int = Field(index=True, foreign_key="course.id")
+    unit_id: int = Field(index=True, foreign_key="courseunit.id")
+    title: str
+    order_index: int = Field(default=0, index=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class FileChapterMapping(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("file_id", "chapter_id", name="ux_filechaptermapping_file_chapter"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
+    file_id: int = Field(index=True, foreign_key="filemeta.id")
+    chapter_id: int = Field(index=True, foreign_key="coursechapter.id")
+    confidence: float = 0.0
+    mapping_source: str = Field(default="auto")
     created_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -52,6 +106,12 @@ class ReviewSheet(SQLModel, table=True):
     source_id: Optional[int] = Field(default=None, index=True)
     kind: str  # outline|qa|flashcards
     content: str  # JSON string
+    subject_code: Optional[str] = Field(default=None, index=True)
+    course_name: Optional[str] = Field(default=None, index=True)
+    exam_type: Optional[str] = Field(default=None, index=True)
+    exam_name: Optional[str] = None
+    selected_chapter_ids: Optional[str] = None
+    selected_chapter_labels: Optional[str] = None
     is_favorite: bool = Field(default=False)
     created_at: datetime = Field(default_factory=_utcnow)
 

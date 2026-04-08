@@ -19,6 +19,7 @@ AI 驱动的复习提要生成器（FastAPI + HTML/CSS/JS）。支持：
 - `backend/` FastAPI 后端
 - `frontend/` 静态前端页面
 - `start.ps1` 一键启动脚本（Windows）
+- `start.sh` 一键启动脚本（Ubuntu 22.04 / Linux）
 - `docker-compose.yml` 本地容器编排
 
 ## 快速开始（Windows，本地运行）
@@ -26,6 +27,26 @@ AI 驱动的复习提要生成器（FastAPI + HTML/CSS/JS）。支持：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start.ps1 -Mode local
+```
+
+## 快速开始（Ubuntu 22.04，本地运行）
+推荐使用一键脚本：
+
+```bash
+chmod +x ./start.sh
+./start.sh --mode local
+```
+
+如需跳过依赖安装：
+
+```bash
+./start.sh --skip-deps
+```
+
+Docker 模式：
+
+```bash
+./start.sh --mode docker
 ```
 
 启动后：

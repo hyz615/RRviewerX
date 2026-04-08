@@ -600,6 +600,83 @@ def _split_chapter_titles(raw: str) -> List[str]:
     return out[:10] if out else ["总览" if not settings.LLM_MODEL.lower().startswith("gpt") else "Overview"]
 
 
+def _matching_tokens(text: str) -> set[str]:
+    normalized = re.sub(r"[\/_\-]+", " ", (text or "").lower())
+    tokens: set[str] = set(re.findall(r"[a-z0-9]{2,}", normalized))
+    for chunk in re.findall(r"[\u4e00-\u9fff]+", normalized):
+        if not chunk:
+            continue
+        if len(chunk) <= 4:
+            tokens.add(chunk)
+        for size in (2, 3, 4):
+            if len(chunk) < size:
+                continue
+            for index in range(len(chunk) - size + 1):
+                tokens.add(chunk[index:index + size])
+    return tokens
+
+
+def suggest_chapter_matches(
+    filename: str,
+    material_text: str,
+    chapters: List[Dict[str, Any]],
+    *,
+    max_matches: int = 3,
+) -> List[Dict[str, Any]]:
+    corpus = f"{filename or ''}\n{material_text or ''}"[:8000]
+    corpus_dense = re.sub(r"\s+", "", corpus.lower())
+    corpus_tokens = _matching_tokens(corpus)
+    suggestions: List[Dict[str, Any]] = []
+
+    for chapter in chapters or []:
+        title = str(chapter.get("title") or "").strip()
+        unit_title = str(chapter.get("unit_title") or "").strip()
+        if not title:
+            continue
+
+        title_tokens = _matching_tokens(title)
+        if unit_title:
+            title_tokens.update(_matching_tokens(unit_title))
+        if not title_tokens:
+            continue
+
+        title_dense = re.sub(r"\s+", "", title.lower())
+        unit_dense = re.sub(r"\s+", "", unit_title.lower()) if unit_title else ""
+        matched_tokens = sum(1 for token in title_tokens if token in corpus_tokens)
+        coverage = matched_tokens / max(len(title_tokens), 1)
+        exact_bonus = 1.0 if title_dense and title_dense in corpus_dense else 0.0
+        unit_bonus = 0.08 if unit_dense and unit_dense in corpus_dense else 0.0
+        score = max(exact_bonus, min(0.99, coverage + unit_bonus))
+        if score < 0.2:
+            continue
+
+        suggestions.append({
+            "chapter_id": chapter.get("id"),
+            "chapter_title": title,
+            "unit_id": chapter.get("unit_id"),
+            "unit_title": unit_title or None,
+            "confidence": round(score, 4),
+            "mapping_source": "auto",
+            "label": chapter.get("label") or (f"{unit_title} / {title}" if unit_title else title),
+            "_unit_order": int(chapter.get("unit_order_index") or 0),
+            "_chapter_order": int(chapter.get("order_index") or 0),
+        })
+
+    suggestions.sort(key=lambda item: (-item["confidence"], item["_unit_order"], item["_chapter_order"], int(item["chapter_id"] or 0)))
+    return [
+        {
+            "chapter_id": item["chapter_id"],
+            "chapter_title": item["chapter_title"],
+            "unit_id": item["unit_id"],
+            "unit_title": item["unit_title"],
+            "confidence": item["confidence"],
+            "mapping_source": item["mapping_source"],
+            "label": item["label"],
+        }
+        for item in suggestions[:max_matches]
+    ]
+
+
 # ---------- Fast-mode helpers: one LLM call per chapter ---------- #
 
 def _prompt_chapter_all_sections(title: str, material: str, toks: Dict[str, Any]) -> str:

@@ -7,6 +7,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from fastapi.testclient import TestClient
 from app.main import app
+from app.core.jwt import sign_jwt
 
 
 def test_upload_text_trial():
@@ -16,3 +17,37 @@ def test_upload_text_trial():
         j = r.json()
         assert j["ok"] is True
         assert j["chars"] >= 5
+
+
+def test_upload_list_filters_by_subject_context():
+    token = sign_jwt("local:9201", "local")
+    headers = {"Authorization": f"Bearer {token}"}
+    with TestClient(app) as client:
+        first = client.post(
+            "/upload",
+            headers=headers,
+            data={"subject_code": "math", "course_name": "Calculus I"},
+            files={"file": ("calc.txt", b"limits and derivatives", "text/plain")},
+        )
+        assert first.status_code == 200
+        assert first.json()["ok"] is True
+
+        second = client.post(
+            "/upload",
+            headers=headers,
+            data={"subject_code": "physics", "course_name": "Mechanics"},
+            files={"file": ("mech.txt", b"force and acceleration", "text/plain")},
+        )
+        assert second.status_code == 200
+        assert second.json()["ok"] is True
+
+        filtered = client.get(
+            "/upload/list",
+            headers=headers,
+            params={"subject_code": "math", "course_name": "Calculus I"},
+        )
+        assert filtered.status_code == 200
+        items = filtered.json()["items"]
+        assert len(items) >= 1
+        assert all(item["subject_code"] == "math" for item in items)
+        assert all(item["course_name"] == "Calculus I" for item in items)

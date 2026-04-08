@@ -3,52 +3,120 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>RRviewer - 上传</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="assets/styles.css" />
-  <script src="assets/api.js" defer></script>
-  <script src="assets/i18n.js?v=20250915" defer></script>
-  </head>
-  <body class="bg-slate-50 text-slate-900">
-  <script>location.replace('workspace.html');</script>
-    <div class="max-w-2xl mx-auto p-6 mt-10 rounded-xl rr-card">
-      <h1 class="text-xl font-bold mb-4" data-i18n="upload_title">上传资料或手动输入</h1>
-  <form id="upload-form" class="space-y-4">
-        <input type="file" name="file" class="block w-full" />
-        <div>
-          <label class="block text-sm mb-1" data-i18n="upload_url_label">或从链接抓取</label>
-          <input type="url" name="url" class="w-full border rounded p-2" data-i18n-placeholder="upload_url_placeholder" placeholder="例如：https://example.com/file.pdf" />
-        </div>
-        <textarea name="text" data-i18n-placeholder="paste_text" placeholder="或粘贴文本..." class="w-full border rounded p-2 h-40"></textarea>
-        <div class="flex gap-2">
-          <button id="btn-upload" class="bg-emerald-600 text-white px-4 py-2 rounded" type="submit" data-i18n="upload_btn">上传</button>
-          <a class="px-4 py-2 rounded border" href="review.html" data-i18n="skip_to_generate">跳过到生成</a>
-        </div>
-      </form>
-      <pre id="result" class="mt-4 text-xs text-slate-600"></pre>
-    </div>
-  <script>
-      const form = document.getElementById('upload-form');
-      const btn = document.getElementById('btn-upload');
-      form.onsubmit = async (e) => {
-        e.preventDefault();
-        const prev = btn.textContent;
-        btn.disabled = true; btn.style.opacity = 0.8; btn.innerHTML = `<span class="spinner inline-block mr-2"></span>${window.__i18n__?__i18n__.t('uploading'):'上传中...'}`;
-        const fd = new FormData(form);
-        const token = localStorage.getItem('token');
-        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    <title>RRviewer - 材料中心</title>
+    <script>
+      (function () {
         try {
-          const r = await apiFetch("/upload", {method:'POST', headers, body: fd});
-          const j = await r.json();
-          document.getElementById('result').textContent = JSON.stringify(j, null, 2);
-          if (j.ok) {
-            sessionStorage.setItem('lastUploadChars', j.chars);
+          var saved = localStorage.getItem('rr_theme');
+          if (!saved) {
+            saved = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
           }
-        } finally {
-          btn.disabled = false; btn.style.opacity = 1; btn.textContent = prev;
-        }
-      };
-  </script>
-  <footer class="mt-10 py-6 text-center text-xs text-slate-500">©RUR1 INNOVATION & Skyru AI</footer>
+          document.documentElement.setAttribute('data-theme', saved);
+        } catch (e) {}
+      })();
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="assets/styles.css?v=20260407" />
+    <script>window.I18N_NO_FLOAT = true;</script>
+    <script src="assets/i18n.js?v=20260407" defer></script>
+    <script src="assets/api.js" defer></script>
+    <script src="assets/toast.js" defer></script>
+    <script src="assets/app-shell.js?v=20260407" defer></script>
+    <script src="assets/app-state.js?v=20260407" defer></script>
+    <script src="assets/page-upload.js?v=20260407" defer></script>
+  </head>
+  <body class="page-surface">
+    <div id="app-shell-top"></div>
+    <div id="course-header"></div>
+    <main class="page-wrap">
+      <div class="page-grid page-grid--two">
+        <section class="panel">
+          <details id="structure-details" style="margin-bottom:1.25rem;">
+            <summary style="cursor:pointer; font-size:0.9rem; font-weight:600; color:var(--text); padding:0.5rem 0; list-style:none; display:flex; align-items:center; gap:0.5rem;">
+              <span>📋</span>
+              <span data-i18n="course_structure_title">课程章节结构</span>
+              <span id="structure-summary-badge" style="margin-left:auto; font-size:0.75rem; color:var(--muted); font-weight:400;"></span>
+            </summary>
+            <p id="upload-structure-note" class="panel-copy" style="margin:0.25rem 0 0.75rem;" data-i18n="course_structure_copy">先配置单元和章节，后续上传会自动匹配到课程内部章节。</p>
+            <div class="toolbar-row" style="margin-bottom:0.75rem;">
+              <button id="btn-add-unit" type="button" class="ghost-btn" data-i18n="course_structure_add_unit">新增单元</button>
+              <button id="btn-save-structure" type="button" class="soft-btn" data-i18n="course_structure_save">保存结构</button>
+            </div>
+            <div id="upload-structure-editor"></div>
+          </details>
+
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title" data-i18n="upload_pick_files">选择并上传文件</h2>
+              <p class="panel-copy" data-i18n="file_req_types">支持 PDF / DOCX / TXT / CSV / XLSX / PPTX / JPG / PNG</p>
+            </div>
+          </div>
+
+          <input id="file-input" type="file" multiple class="hidden" />
+          <button id="btn-pick-files" type="button" class="primary-btn" data-i18n="upload_pick_files">选择并上传文件</button>
+          <div class="note-box" style="margin-top:1rem;">
+            <div class="helper-text" data-i18n="file_req_size">建议 &lt; 10MB，文本尽量清晰易解析</div>
+            <div class="helper-text" data-i18n="file_req_privacy">请勿上传敏感隐私数据</div>
+          </div>
+
+          <div class="panel-header" style="margin-top:1.25rem;">
+            <div>
+              <h2 class="panel-title" data-i18n="add_from_url">从链接添加</h2>
+              <p class="panel-copy" data-i18n="upload_url_label">或从链接抓取</p>
+            </div>
+          </div>
+          <div class="toolbar-row">
+            <input id="url-input" class="input-field" type="url" data-i18n-placeholder="upload_url_placeholder" placeholder="例如：https://example.com/file.pdf" />
+            <button id="btn-add-url" type="button" class="soft-btn" data-i18n="add_from_url">从链接添加</button>
+          </div>
+
+          <div class="panel-header" style="margin-top:1.25rem;">
+            <div>
+              <h2 class="panel-title" data-i18n="upload_manual_title">文本草稿</h2>
+              <p class="panel-copy" data-i18n="paste_text">或粘贴文本...</p>
+            </div>
+          </div>
+          <textarea id="draft-text" class="text-area" data-i18n-placeholder="input_or_paste" placeholder="输入或粘贴文本..."></textarea>
+          <div class="toolbar-row" style="margin-top:0.85rem; justify-content:space-between;">
+            <span class="muted-inline"><span id="draft-char-count">0</span></span>
+            <button id="btn-save-draft" type="button" class="ghost-btn" data-i18n="upload_save_draft">保存草稿</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title" data-i18n="upload_server_library">已上传文件</h2>
+              <p id="server-library-note" class="panel-copy"></p>
+            </div>
+            <div class="toolbar-row">
+              <button id="btn-refresh-server" type="button" class="ghost-btn" data-i18n="common_refresh">刷新</button>
+              <button id="btn-clear-server" type="button" class="danger-btn" data-i18n="common_clear">清空</button>
+            </div>
+          </div>
+          <div id="server-list" class="source-list"></div>
+          <div id="server-empty" class="empty-state" data-i18n="source_empty">暂无材料</div>
+
+          <div class="panel-header" style="margin-top:1.25rem;">
+            <div>
+              <h2 class="panel-title" data-i18n="upload_session_sources">临时材料</h2>
+              <p class="panel-copy" data-i18n="upload_page_subtitle">上传文件、抓取链接，或整理本次生成需要的临时材料。</p>
+            </div>
+            <button id="btn-clear-session" type="button" class="ghost-btn" data-i18n="common_clear">清空</button>
+          </div>
+          <div id="session-list" class="source-list"></div>
+          <div id="session-empty" class="empty-state" data-i18n="source_empty">暂无材料</div>
+
+          <div class="panel-header" style="margin-top:1.25rem; margin-bottom:0.75rem;">
+            <div>
+              <h2 class="panel-title" data-i18n="selected_files">已选择</h2>
+            </div>
+          </div>
+          <div id="selected-list" class="chip-list"></div>
+          <div id="selected-empty" class="empty-state" data-i18n="none_selected">暂无选择</div>
+        </section>
+      </div>
+    </main>
+    <div id="app-shell-bottom"></div>
   </body>
 </html>

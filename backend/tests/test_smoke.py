@@ -9,6 +9,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from fastapi.testclient import TestClient
 from app.main import app
 import pytest
+from app.core.jwt import sign_jwt
 
 
 @pytest.fixture()
@@ -46,4 +47,64 @@ def test_generate_outline_and_chat(client):
     assert r3.status_code == 200
     j3 = r3.json()
     assert j3["ok"] is True and len(j3["answers"]) == 2
+
+
+def test_subject_history_persists_exam_metadata(client):
+    token = sign_jwt("local:9301", "local")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    upload = client.post(
+        "/upload",
+        headers=headers,
+        data={"subject_code": "math", "course_name": "Linear Algebra"},
+        files={"file": ("matrix.txt", b"matrix inverse determinant eigenvalue", "text/plain")},
+    )
+    assert upload.status_code == 200
+    file_id = upload.json()["file_id"]
+
+    first = client.post(
+        "/generate",
+        headers=headers,
+        json={
+            "format": "qa",
+            "length": "short",
+            "source_ids": [str(file_id)],
+            "exam_type": "midterm",
+            "exam_name": "2026 Spring Midterm",
+        },
+    )
+    assert first.status_code == 200
+    first_id = first.json()["id"]
+
+    second = client.post(
+        "/generate",
+        headers=headers,
+        json={
+            "format": "qa",
+            "length": "short",
+            "source_ids": [str(file_id)],
+            "exam_type": "final",
+            "exam_name": "2026 Spring Final",
+        },
+    )
+    assert second.status_code == 200
+
+    filtered = client.get(
+        "/history",
+        headers=headers,
+        params={"subject_code": "math", "exam_type": "midterm"},
+    )
+    assert filtered.status_code == 200
+    items = filtered.json()["items"]
+    assert any(item["id"] == first_id for item in items)
+    assert all(item["subject_code"] == "math" for item in items)
+    assert all(item["exam_type"] == "midterm" for item in items)
+
+    detail = client.get(f"/history/{first_id}", headers=headers)
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["subject_code"] == "math"
+    assert payload["course_name"] == "Linear Algebra"
+    assert payload["exam_type"] == "midterm"
+    assert payload["exam_name"] == "2026 Spring Midterm"
 

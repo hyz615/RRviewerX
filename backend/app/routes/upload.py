@@ -1,10 +1,18 @@
-from fastapi import APIRouter, UploadFile, File, Form, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
+from pydantic import BaseModel, Field
 from ..services.file_service import sniff_and_read
+from ..services.agent_service import suggest_chapter_matches
 from ..core.db import get_session
 from sqlmodel import Session, select
 from ..models.entities import FileMeta
 from ..core.deps import require_auth_or_trial
+from ..services.course_service import (
+    delete_file_mappings_for_files,
+    list_course_chapters,
+    list_file_chapter_mappings,
+    replace_file_chapter_mappings,
+    resolve_course,
+)
 import os
 from pathlib import Path
 import httpx
@@ -16,8 +24,66 @@ import socket, ipaddress
 router = APIRouter()
 
 
+def _clean_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _normalize_subject_code(value: str | None) -> str | None:
+    cleaned = _clean_optional_text(value)
+    return cleaned.lower() if cleaned else None
+
+
 class ManualInput(BaseModel):
     text: str
+
+
+class FileChapterUpdate(BaseModel):
+    chapter_ids: list[int] = Field(default_factory=list)
+
+
+def _apply_auto_chapter_mappings(
+    session: Session,
+    user_id: int | None,
+    file_meta: FileMeta | None,
+    content: str,
+) -> list[dict]:
+    if user_id is None or file_meta is None or file_meta.id is None:
+        return []
+
+    course = resolve_course(
+        session,
+        user_id,
+        file_meta.subject_code,
+        file_meta.course_name,
+        create_if_missing=False,
+    )
+    if course is None:
+        return []
+
+    chapters = list_course_chapters(session, course.id)
+    if not chapters:
+        return []
+
+    suggestions = suggest_chapter_matches(file_meta.filename, content, chapters)
+    if not suggestions:
+        return []
+
+    confidence_map = {
+        int(item["chapter_id"]): float(item.get("confidence") or 0.0)
+        for item in suggestions
+        if item.get("chapter_id") is not None
+    }
+    return replace_file_chapter_mappings(
+        session,
+        user_id,
+        file_meta.id,
+        confidence_map.keys(),
+        mapping_source="auto",
+        confidence_map=confidence_map,
+    )
 
 
 @router.post("")
@@ -26,12 +92,17 @@ async def upload_file(
     file: UploadFile | None = File(default=None),
     text: str | None = Form(default=None),
     url: str | None = Form(default=None),
+    subject_code: str | None = Form(default=None),
+    course_name: str | None = Form(default=None),
     ctx=Depends(require_auth_or_trial),
     session: Session = Depends(get_session),
 ):
     # Minimal stub to accept either a file or manual text
+    subject_code = _normalize_subject_code(subject_code)
+    course_name = _clean_optional_text(course_name)
     meta = {}
     content = ""
+    chapter_matches: list[dict] = []
     if file:
         raw = await file.read()
         extracted = sniff_and_read(file.filename, raw) or ""
@@ -42,7 +113,14 @@ async def upload_file(
             fm = None
         else:
             # persist metadata and store raw file
-            fm = FileMeta(filename=file.filename, content_type=file.content_type or None, size=len(raw), user_id=ctx.get("user_id"))
+            fm = FileMeta(
+                filename=file.filename,
+                content_type=file.content_type or None,
+                size=len(raw),
+                user_id=ctx.get("user_id"),
+                subject_code=subject_code,
+                course_name=course_name,
+            )
             session.add(fm)
             session.commit()
             # store to storage/uploads
@@ -55,6 +133,7 @@ async def upload_file(
             fm.stored_path = str(path)
             session.add(fm)
             session.commit()
+            chapter_matches = _apply_auto_chapter_mappings(session, ctx.get("user_id"), fm, content)
     elif url:
         # Basic SSRF guard and size-limited download
         try:
@@ -119,7 +198,14 @@ async def upload_file(
                 if ctx.get("user_id") is None:
                     fm = None
                 else:
-                    fm = FileMeta(filename=fname, content_type=ctype or None, size=len(raw), user_id=ctx.get("user_id"))
+                    fm = FileMeta(
+                        filename=fname,
+                        content_type=ctype or None,
+                        size=len(raw),
+                        user_id=ctx.get("user_id"),
+                        subject_code=subject_code,
+                        course_name=course_name,
+                    )
                     session.add(fm)
                     session.commit()
                     base_dir = Path(__file__).resolve().parents[2] / "storage" / "uploads"
@@ -131,6 +217,7 @@ async def upload_file(
                     fm.stored_path = str(path)
                     session.add(fm)
                     session.commit()
+                    chapter_matches = _apply_auto_chapter_mappings(session, ctx.get("user_id"), fm, content)
         except Exception:
             return {"ok": False, "error": "Fetch error"}
     elif text:
@@ -140,28 +227,50 @@ async def upload_file(
 
     # return file_id for referencing later (drag-to-generate etc.)
     resp = {"ok": True, "meta": meta, "chars": len(content), "content": content}
+    if subject_code:
+        resp["subject_code"] = subject_code
+    if course_name:
+        resp["course_name"] = course_name
     try:
         if 'fm' in locals() and fm and fm.id:
             resp["file_id"] = fm.id
+            resp["chapter_matches"] = chapter_matches
     except Exception:
         pass
     return resp
 
 
 @router.get("/list")
-def list_files(session: Session = Depends(get_session), _ctx=Depends(require_auth_or_trial)):
+def list_files(
+    subject_code: str | None = None,
+    course_name: str | None = None,
+    session: Session = Depends(get_session),
+    _ctx=Depends(require_auth_or_trial),
+):
     # 未登录：不返回任何文件（试用上传不落盘）
     if _ctx.get("user_id") is None:
         return {"ok": True, "items": []}
-    stmt = select(FileMeta).where(FileMeta.user_id == _ctx.get("user_id")).order_by(FileMeta.created_at.desc()).limit(20)
+    normalized_subject_code = _normalize_subject_code(subject_code)
+    normalized_course_name = _clean_optional_text(course_name)
+
+    stmt = select(FileMeta).where(FileMeta.user_id == _ctx.get("user_id"))
+    if normalized_subject_code:
+        stmt = stmt.where(FileMeta.subject_code == normalized_subject_code)
+    if normalized_course_name:
+        stmt = stmt.where(FileMeta.course_name.ilike(normalized_course_name))
+    stmt = stmt.order_by(FileMeta.created_at.desc()).limit(20)
     rows = session.exec(stmt).all()
+    mapping_map = list_file_chapter_mappings(session, [row.id for row in rows if row.id is not None])
     items = [
         {
             "id": r.id,
             "filename": r.filename,
             "content_type": r.content_type,
             "size": r.size,
+            "subject_code": r.subject_code,
+            "course_name": r.course_name,
             "created_at": r.created_at.isoformat(),
+            "chapter_matches": mapping_map.get(r.id, []),
         }
         for r in rows
     ]
@@ -169,14 +278,27 @@ def list_files(session: Session = Depends(get_session), _ctx=Depends(require_aut
 
 
 @router.delete("/all")
-def clear_all_files(session: Session = Depends(get_session), _ctx=Depends(require_auth_or_trial)):
+def clear_all_files(
+    subject_code: str | None = None,
+    course_name: str | None = None,
+    session: Session = Depends(get_session),
+    _ctx=Depends(require_auth_or_trial),
+):
     """Delete all uploaded files for current user (metadata + stored files)."""
     user_id = _ctx.get("user_id")
     if user_id is None:
         # Trial/anonymous: nothing persisted
         return {"ok": True, "count": 0}
+    normalized_subject_code = _normalize_subject_code(subject_code)
+    normalized_course_name = _clean_optional_text(course_name)
+
     stmt = select(FileMeta).where(FileMeta.user_id == user_id)
+    if normalized_subject_code:
+        stmt = stmt.where(FileMeta.subject_code == normalized_subject_code)
+    if normalized_course_name:
+        stmt = stmt.where(FileMeta.course_name.ilike(normalized_course_name))
     rows = session.exec(stmt).all()
+    delete_file_mappings_for_files(session, [row.id for row in rows if row.id is not None])
     count = 0
     for r in rows:
         try:
@@ -192,3 +314,28 @@ def clear_all_files(session: Session = Depends(get_session), _ctx=Depends(requir
             continue
     session.commit()
     return {"ok": True, "count": count}
+
+
+@router.put("/{file_id}/chapters")
+def update_file_chapters(
+    file_id: int,
+    payload: FileChapterUpdate,
+    session: Session = Depends(get_session),
+    _ctx=Depends(require_auth_or_trial),
+):
+    user_id = _ctx.get("user_id")
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        chapter_matches = replace_file_chapter_mappings(
+            session,
+            user_id,
+            file_id,
+            payload.chapter_ids,
+            mapping_source="manual",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return {"ok": True, "file_id": file_id, "chapter_matches": chapter_matches}

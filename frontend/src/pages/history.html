@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-cn">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RRviewer - 历史记录</title>
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('rr_theme');
+          if (!saved) {
+            saved = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.setAttribute('data-theme', saved);
+        } catch (e) {}
+      })();
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="assets/styles.css?v=20260407" />
+    <script>window.I18N_NO_FLOAT = true;</script>
+    <script src="assets/i18n.js?v=20260407" defer></script>
+    <script src="assets/api.js" defer></script>
+    <script src="assets/toast.js" defer></script>
+    <script src="assets/app-shell.js?v=20260407" defer></script>
+    <script src="assets/app-state.js?v=20260407" defer></script>
+    <script src="assets/page-history.js?v=20260407" defer></script>
+  </head>
+  <body class="page-surface">
+    <div id="app-shell-top"></div>
+    <div id="course-header"></div>
+    <main class="page-wrap">
+
+      <section id="history-login-note" class="panel hidden" style="margin-bottom:1rem;">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title" data-i18n="login_register">登录/注册</h2>
+            <p class="panel-copy" data-i18n="history_need_login_long">历史记录仅对登录用户开放。</p>
+          </div>
+          <a href="index.html?login=1" class="primary-btn" data-i18n="login_register">登录/注册</a>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title" data-i18n="history_title">最近记录</h2>
+            <p class="panel-copy" data-i18n="history_page_subtitle">搜索、收藏、恢复之前生成的提要。</p>
+          </div>
+          <div class="toolbar-row">
+            <button id="btn-history-favorites" type="button" class="ghost-btn" aria-label="Filter favorites">★</button>
+            <button id="btn-history-refresh" type="button" class="soft-btn" data-i18n="common_refresh">刷新</button>
+          </div>
+        </div>
+
+        <div class="context-grid">
+          <label class="field-stack">
+            <span class="field-label" data-i18n="exam_label">考试类型</span>
+            <select id="history-exam-type" class="select-field"></select>
+          </label>
+          <label class="field-stack">
+            <span class="field-label" data-i18n="exam_name_label">考试名称</span>
+            <input id="history-exam-name" class="input-field" type="text" data-i18n-placeholder="exam_name_placeholder" placeholder="例如：2026 春期中" />
+          </label>
+        </div>
+
+        <input id="history-search" class="search-input" type="text" data-i18n-placeholder="history_search_placeholder" placeholder="搜索历史记录..." />
+        <div id="history-status" class="muted-inline mt-3"></div>
+        <div id="history-list" class="history-list mt-4"></div>
+        <div id="history-empty" class="empty-state mt-4 hidden" data-i18n="history_empty">暂无历史记录</div>
+      </section>
+    </main>
+    <div id="app-shell-bottom"></div>
+  </body>
+</html>

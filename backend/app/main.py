@@ -13,9 +13,9 @@ from sqlmodel import Session, select
 
 from .core.config import settings
 from .core.db import init_db, get_session, engine
-from .routes import auth, upload, generate, chat, embed
+from .routes import auth, upload, generate, chat, embed, course_structure
 from .routes import status, admin, vip, history, support, test
-from .models.entities import FileMeta, ReviewSheet
+from .models.entities import FileMeta, ReviewSheet, FileChapterMapping
 
 # ── Structured Logging ──────────────────────────────────────────
 logging.basicConfig(
@@ -46,7 +46,8 @@ async def lifespan(app: FastAPI):
                     removed = 0
                     for fm in old_files:
                         used = session.exec(select(ReviewSheet).where(ReviewSheet.source_id == fm.id)).first()
-                        if used:
+                        mapped = session.exec(select(FileChapterMapping).where(FileChapterMapping.file_id == fm.id)).first()
+                        if used or mapped:
                             continue
                         if fm.stored_path and os.path.exists(fm.stored_path):
                             try:
@@ -96,6 +97,7 @@ app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(upload.router, prefix="/upload", tags=["upload"])
+app.include_router(course_structure.router, prefix="/course-structure", tags=["course-structure"])
 app.include_router(generate.router, prefix="/generate", tags=["generate"])
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
 app.include_router(embed.router, prefix="/embed", tags=["embed"])

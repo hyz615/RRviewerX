@@ -6,6 +6,7 @@ from sqlmodel import Session
 from ..core.db import get_session
 from ..core.deps import require_auth_or_trial, get_user_key
 from ..services.agent_service import generate_review, generate_review_pro_agent_iter
+from ..services.course_service import dump_json_list, resolve_files_for_chapters
 from starlette.concurrency import run_in_threadpool
 from ..core.config import settings
 from ..models.models import ReviewSheet, FileMeta, Vip, MonthlyUsage
@@ -18,6 +19,151 @@ from typing import List
 router = APIRouter()
 
 
+def _clean_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _normalize_subject_code(value: str | None) -> str | None:
+    cleaned = _clean_optional_text(value)
+    return cleaned.lower() if cleaned else None
+
+
+def _normalize_exam_type(value: str | None) -> str | None:
+    cleaned = _clean_optional_text(value)
+    return cleaned.lower() if cleaned else None
+
+
+def _normalize_chapter_ids(values: List[str] | None) -> list[int]:
+    seen_ids: set[int] = set()
+    normalized: list[int] = []
+    for value in values or []:
+        try:
+            chapter_id = int(value)
+        except Exception:
+            continue
+        if chapter_id in seen_ids:
+            continue
+        seen_ids.add(chapter_id)
+        normalized.append(chapter_id)
+    return normalized
+
+
+def _read_file_text(file_meta: FileMeta) -> str:
+    if not file_meta.stored_path:
+        return ""
+    try:
+        with open(file_meta.stored_path, "rb") as handle:
+            raw = handle.read()
+        return sniff_and_read(file_meta.filename, raw) or (raw.decode(errors="ignore") if raw else "")
+    except Exception:
+        return ""
+
+
+def _collect_generation_sources(
+    payload: "GenerateRequest",
+    session: Session,
+    owner_id: int | None,
+) -> dict[str, object]:
+    text = (payload.text or "").strip()
+    used_names: List[str] = []
+    used_source_id: int | None = None
+    first_meta: FileMeta | None = None
+    selected_chapter_ids = _normalize_chapter_ids(payload.chapter_ids)
+    selected_chapter_labels: list[str] = []
+    candidate_ids: list[int] = []
+    seen_candidate_ids: set[int] = set()
+
+    def add_candidate(raw_id: str | int | None) -> None:
+        if raw_id is None:
+            return
+        try:
+            file_id = int(raw_id)
+        except Exception:
+            return
+        if file_id in seen_candidate_ids:
+            return
+        seen_candidate_ids.add(file_id)
+        candidate_ids.append(file_id)
+
+    for source_id in payload.source_ids or []:
+        add_candidate(source_id)
+    add_candidate(payload.source_id)
+
+    if selected_chapter_ids and owner_id is not None:
+        chapter_file_ids, selected_chapter_ids, selected_chapter_labels = resolve_files_for_chapters(
+            session,
+            owner_id,
+            selected_chapter_ids,
+        )
+        for file_id in chapter_file_ids:
+            add_candidate(file_id)
+
+    texts: List[str] = []
+    ids: List[int] = []
+    for file_id in candidate_ids:
+        file_meta = session.get(FileMeta, file_id)
+        if file_meta is None or not file_meta.stored_path:
+            continue
+        if owner_id is not None and file_meta.user_id != owner_id:
+            continue
+        extracted = _read_file_text(file_meta)
+        if not extracted:
+            continue
+        if first_meta is None:
+            first_meta = file_meta
+        texts.append(extracted)
+        ids.append(file_id)
+        used_names.append(file_meta.filename)
+
+    if texts:
+        text = ("\n\n".join(texts) + ("\n\n" + text if text else "")).strip()
+        used_source_id = ids[0] if ids else None
+
+    return {
+        "text": text,
+        "used_source_id": used_source_id,
+        "used_names": used_names,
+        "first_meta": first_meta,
+        "selected_chapter_ids": selected_chapter_ids,
+        "selected_chapter_labels": selected_chapter_labels,
+    }
+
+
+def _build_generation_context(
+    text: str,
+    lang: str,
+    subject_code: str | None,
+    course_name: str | None,
+    exam_type: str | None,
+    exam_name: str | None,
+    chapter_labels: list[str] | None = None,
+) -> str:
+    lines: list[str] = []
+    is_en = (lang or "").lower().startswith("en")
+    if subject_code:
+        lines.append(("Subject" if is_en else "科目") + f": {subject_code}")
+    if course_name:
+        lines.append(("Course" if is_en else "课程") + f": {course_name}")
+    if exam_type:
+        lines.append(("Exam Type" if is_en else "考试类型") + f": {exam_type}")
+    if exam_name:
+        lines.append(("Exam" if is_en else "考试") + f": {exam_name}")
+    if chapter_labels:
+        preview = ", ".join(chapter_labels[:8])
+        if len(chapter_labels) > 8:
+            preview += f" (+{len(chapter_labels) - 8})"
+        lines.append(("Chapters" if is_en else "章节范围") + f": {preview}")
+
+    if not lines:
+        return text
+
+    prefix = "Context" if is_en else "上下文"
+    return prefix + ":\n- " + "\n- ".join(lines) + "\n\n" + text
+
+
 class GenerateRequest(BaseModel):
     source_id: str | None = None
     source_ids: List[str] | None = None
@@ -25,6 +171,11 @@ class GenerateRequest(BaseModel):
     format: str  # qa|flashcards|review_sheet_pro
     lang: str | None = None  # 'zh' | 'en'
     length: str | None = None  # 'short' | 'medium' | 'long'
+    subject_code: str | None = None
+    course_name: str | None = None
+    exam_type: str | None = None
+    exam_name: str | None = None
+    chapter_ids: List[str] | None = None
 
 
 @router.post("")
@@ -50,53 +201,40 @@ async def generate(payload: GenerateRequest, response: Response, _ctx=Depends(re
         is_vip = bool(vip and vip.is_vip and (vip.expires_at is None or vip.expires_at > datetime.now(timezone.utc)))
         if not is_vip:
             return {"ok": False, "error": "Long length generation requires VIP."}
-    text = (payload.text or "").strip()
-    used_source_id: int | None = None
-    used_names: List[str] = []
     owner_id = _ctx.get("user_id")
-    # Gather texts from multiple files if provided
-    texts: List[str] = []
-    ids: List[int] = []
-    if payload.source_ids and len(payload.source_ids) > 0:
-        for sid in payload.source_ids:
-            try:
-                fid = int(sid)
-                fm = session.get(FileMeta, fid)
-                if fm and fm.stored_path and (owner_id is None or fm.user_id == owner_id):
-                    with open(fm.stored_path, "rb") as f:
-                        raw = f.read()
-                    ex = sniff_and_read(fm.filename, raw) or (raw.decode(errors="ignore") if raw else "")
-                    if ex:
-                        texts.append(ex)
-                        ids.append(fid)
-                        used_names.append(fm.filename)
-            except Exception:
-                continue
-        if texts:
-            text = ("\n\n".join(texts) + ("\n\n" + text if text else "")).strip()
-            used_source_id = ids[0] if ids else None
-    elif (not text) and payload.source_id:
-        try:
-            fid = int(payload.source_id)
-            fm = session.get(FileMeta, fid)
-            if fm and fm.stored_path and (owner_id is None or fm.user_id == owner_id):
-                try:
-                    with open(fm.stored_path, "rb") as f:
-                        raw = f.read()
-                    text = sniff_and_read(fm.filename, raw) or (raw.decode(errors="ignore") if raw else "")
-                    used_source_id = fm.id
-                    if fm.filename:
-                        used_names.append(fm.filename)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+    subject_code = _normalize_subject_code(payload.subject_code)
+    course_name = _clean_optional_text(payload.course_name)
+    exam_type = _normalize_exam_type(payload.exam_type)
+    exam_name = _clean_optional_text(payload.exam_name)
+    source_bundle = _collect_generation_sources(payload, session, owner_id)
+    text = str(source_bundle["text"])
+    used_source_id = source_bundle["used_source_id"]
+    used_names = list(source_bundle["used_names"])
+    first_meta = source_bundle["first_meta"]
+    selected_chapter_ids = list(source_bundle["selected_chapter_ids"])
+    selected_chapter_labels = list(source_bundle["selected_chapter_labels"])
     if not text:
         return {"ok": False, "error": "Empty text"}
 
+    if first_meta is not None:
+        if not subject_code:
+            subject_code = first_meta.subject_code
+        if not course_name:
+            course_name = first_meta.course_name
+
+    model_input = _build_generation_context(
+        text,
+        payload.lang or "zh",
+        subject_code,
+        course_name,
+        exam_type,
+        exam_name,
+        selected_chapter_labels,
+    )
+
     try:
         # Run blocking LLM work in a thread to avoid blocking the event loop
-        result = await run_in_threadpool(generate_review, text, fmt, (payload.lang or 'zh'), (payload.length or 'short'))  # type: ignore[arg-type]
+        result = await run_in_threadpool(generate_review, model_input, fmt, (payload.lang or 'zh'), (payload.length or 'short'))  # type: ignore[arg-type]
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -104,7 +242,7 @@ async def generate(payload: GenerateRequest, response: Response, _ctx=Depends(re
     header = ("Sources: " + ", ".join(used_names) + "\n\n") if used_names else ""
     # If original text exceeded threshold, note that condensation likely occurred
     try:
-        if len(text) > getattr(settings, "MAX_INPUT_CHARS", 16000):
+        if len(model_input) > getattr(settings, "MAX_INPUT_CHARS", 16000):
             header += f"[Note] Condensed to ~{getattr(settings, 'CONDENSE_TARGET_CHARS', 6000)} chars before generation\n\n"
     except Exception:
         pass
@@ -120,7 +258,18 @@ async def generate(payload: GenerateRequest, response: Response, _ctx=Depends(re
     else:
         text_out = header + json.dumps(result, ensure_ascii=False)
 
-    rs = ReviewSheet(user_id=owner_id, source_id=used_source_id, kind=fmt, content=text_out)
+    rs = ReviewSheet(
+        user_id=owner_id,
+        source_id=used_source_id,
+        kind=fmt,
+        content=text_out,
+        subject_code=subject_code,
+        course_name=course_name,
+        exam_type=exam_type,
+        exam_name=exam_name,
+        selected_chapter_ids=dump_json_list(selected_chapter_ids),
+        selected_chapter_labels=dump_json_list(selected_chapter_labels),
+    )
     session.add(rs)
     session.commit()
     # If this was a trial (not logged-in), consume it by marking cookie as used
@@ -129,7 +278,14 @@ async def generate(payload: GenerateRequest, response: Response, _ctx=Depends(re
             response.set_cookie(key="rr_trial", value="used", max_age=60*60*24*180, httponly=False, samesite="lax", path="/")
     except Exception:
         pass
-    return {"ok": True, "id": rs.id, "text": text_out, "review_sheet": result}
+    return {
+        "ok": True,
+        "id": rs.id,
+        "text": text_out,
+        "review_sheet": result,
+        "selected_chapter_ids": selected_chapter_ids,
+        "selected_chapter_labels": selected_chapter_labels,
+    }
 
 
 def _sse_event(name: str, data: str) -> bytes:
@@ -180,52 +336,17 @@ async def generate_stream(payload: GenerateRequest, _ctx=Depends(require_auth_or
                 return StreamingResponse(_limit(), media_type="text/event-stream")
         mu.count += 1; mu.updated_at = datetime.now(timezone.utc); session.add(mu); session.commit()
 
-    # Reuse file reading logic from non-stream endpoint: support source_ids/source_id/text
-    text = (payload.text or "").strip()
     owner_id = _ctx.get("user_id")
-    used_source_id = None
-    try:
-        from ..services.file_service import sniff_and_read
-    except Exception:
-        sniff_and_read = None  # type: ignore
-
-    # Always merge files if provided, then append text if any (consistent with non-stream endpoint)
-    if payload.source_ids:
-        merged: list[str] = []
-        first_id = None
-        for sid in payload.source_ids:
-            try:
-                fid = int(sid)
-                fm = session.get(FileMeta, fid)
-                if fm and fm.stored_path and (owner_id is None or fm.user_id == owner_id):
-                    with open(fm.stored_path, "rb") as f:
-                        raw = f.read()
-                    ex = sniff_and_read(fm.filename, raw) if sniff_and_read else None
-                    tx = ex or (raw.decode(errors="ignore") if raw else "")
-                    if tx:
-                        merged.append(tx)
-                        if first_id is None:
-                            first_id = fm.id
-            except Exception:
-                continue
-        if merged:
-            combined = "\n\n".join(merged)
-            text = (combined + ("\n\n" + text if text else "")).strip()
-            used_source_id = first_id
-    elif payload.source_id:
-        try:
-            fid = int(payload.source_id)
-            fm = session.get(FileMeta, fid)
-            if fm and fm.stored_path and (owner_id is None or fm.user_id == owner_id):
-                with open(fm.stored_path, "rb") as f:
-                    raw = f.read()
-                ex = sniff_and_read(fm.filename, raw) if sniff_and_read else None
-                tx = ex or (raw.decode(errors="ignore") if raw else "")
-                if tx:
-                    text = (tx + ("\n\n" + text if text else "")).strip()
-                    used_source_id = fm.id
-        except Exception:
-            text = text or ""
+    subject_code = _normalize_subject_code(payload.subject_code)
+    course_name = _clean_optional_text(payload.course_name)
+    exam_type = _normalize_exam_type(payload.exam_type)
+    exam_name = _clean_optional_text(payload.exam_name)
+    source_bundle = _collect_generation_sources(payload, session, owner_id)
+    text = str(source_bundle["text"])
+    used_source_id = source_bundle["used_source_id"]
+    first_meta = source_bundle["first_meta"]
+    selected_chapter_ids = list(source_bundle["selected_chapter_ids"])
+    selected_chapter_labels = list(source_bundle["selected_chapter_labels"])
     if not text:
         async def _empty():
             yield _sse_event("error", "Empty text")
@@ -233,12 +354,27 @@ async def generate_stream(payload: GenerateRequest, _ctx=Depends(require_auth_or
         return StreamingResponse(_empty(), media_type="text/event-stream")
 
     lang = (payload.lang or 'zh')
+    if first_meta is not None:
+        if not subject_code:
+            subject_code = first_meta.subject_code
+        if not course_name:
+            course_name = first_meta.course_name
+
+    model_input = _build_generation_context(
+        text,
+        lang,
+        subject_code,
+        course_name,
+        exam_type,
+        exam_name,
+        selected_chapter_labels,
+    )
 
     async def _gen():
         # Progress events
         try:
             buf_text = ""
-            for ev in generate_review_pro_agent_iter(text, lang):
+            for ev in generate_review_pro_agent_iter(model_input, lang):
                 name = ev.get("name")
                 if name == "done":
                     buf_text = ev.get("text", "")
@@ -260,7 +396,18 @@ async def generate_stream(payload: GenerateRequest, _ctx=Depends(require_auth_or
                     yield _sse_event("section", _json.dumps({k: ev[k] for k in ("chapterIndex","sectionIndex","sectionTitle","chapterTitle") if k in ev}, ensure_ascii=False))
             # Persist after generation completes
             if buf_text:
-                rs = ReviewSheet(user_id=owner_id, source_id=used_source_id, kind='review_sheet_pro', content=buf_text)
+                rs = ReviewSheet(
+                    user_id=owner_id,
+                    source_id=used_source_id,
+                    kind='review_sheet_pro',
+                    content=buf_text,
+                    subject_code=subject_code,
+                    course_name=course_name,
+                    exam_type=exam_type,
+                    exam_name=exam_name,
+                    selected_chapter_ids=dump_json_list(selected_chapter_ids),
+                    selected_chapter_labels=dump_json_list(selected_chapter_labels),
+                )
                 session.add(rs)
                 session.commit()
                 import json as _json

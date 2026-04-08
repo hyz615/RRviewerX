@@ -1,4 +1,16 @@
-from .models import User, FileMeta, ReviewSheet, Trial, LocalUser, Ticket, TicketReply  # re-export for convenient imports
+from .models import (
+    User,
+    FileMeta,
+    ReviewSheet,
+    Trial,
+    LocalUser,
+    Ticket,
+    TicketReply,
+    Course,
+    CourseUnit,
+    CourseChapter,
+    FileChapterMapping,
+)  # re-export for convenient imports
 
 __all__ = [
     "User",
@@ -8,4 +20,8 @@ __all__ = [
     "LocalUser",
     "Ticket",
     "TicketReply",
+    "Course",
+    "CourseUnit",
+    "CourseChapter",
+    "FileChapterMapping",
 ]
