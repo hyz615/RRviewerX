@@ -116,6 +116,29 @@ document.addEventListener('DOMContentLoaded', async function () {
     }).filter(Boolean).join('');
   }
 
+  async function syncCoursesFromServer() {
+    if (!window.RRApp.isLoggedIn()) return;
+    try {
+      var r = await window.apiFetch('/course-structure/list', {
+        headers: window.RRApp.authHeaders({ 'Accept': 'application/json' }),
+      });
+      var j = await r.json();
+      if (!j.ok || !Array.isArray(j.courses)) return;
+      var map = readAllBuckets();
+      var changed = false;
+      j.courses.forEach(function (c) {
+        var key = encodeURIComponent(c.subject_code || '') + '|' + encodeURIComponent(c.course_name || '');
+        if (!map[key]) {
+          map[key] = { sources: [], review: null };
+          changed = true;
+        }
+      });
+      if (changed) {
+        sessionStorage.setItem('rr_subject_sessions_v1', JSON.stringify(map));
+      }
+    } catch (_) {}
+  }
+
   function renderWorkspace() {
     var loggedIn = window.RRApp.isLoggedIn();
     guestSection.classList.toggle('hidden', loggedIn);
@@ -131,6 +154,11 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     renderGallery();
+  }
+
+  async function initWorkspace() {
+    await syncCoursesFromServer();
+    renderWorkspace();
   }
 
   function openDialog() {
@@ -197,5 +225,5 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   document.addEventListener('rr:langchange', renderWorkspace);
 
-  renderWorkspace();
+  initWorkspace();
 });

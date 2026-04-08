@@ -41,6 +41,37 @@ def _require_user(uid: int | None) -> int:
     return uid
 
 
+@router.get("/list")
+def list_courses(
+    session: Session = Depends(get_session),
+    uid: int | None = Depends(get_current_user),
+):
+    """Return all courses belonging to the current user (lightweight, no full structure)."""
+    from sqlmodel import select as sel
+    from ..models.models import Course, FileMeta
+    user_id = _require_user(uid)
+    courses = list(session.exec(
+        sel(Course).where(Course.user_id == user_id).order_by(Course.created_at.desc())
+    ).all())
+    result = []
+    for c in courses:
+        file_count = session.exec(
+            sel(FileMeta.id).where(
+                FileMeta.user_id == user_id,
+                FileMeta.subject_code == c.subject_code,
+                FileMeta.course_name == c.course_name,
+            )
+        ).all()
+        result.append({
+            "id": c.id,
+            "subject_code": c.subject_code,
+            "course_name": c.course_name,
+            "source_count": len(file_count),
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        })
+    return {"ok": True, "courses": result}
+
+
 @router.get("")
 def get_structure(
     subject_code: str | None = Query(default=None),

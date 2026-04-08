@@ -41,6 +41,7 @@ class Settings:
     RESEND_API_KEY: str | None
     EMAIL_FROM: str | None
     FRONTEND_BASE: str | None
+    OAUTH_REDIRECT_BASE: str | None
 
     def __init__(self) -> None:
         # Load backend/.env first (if python-dotenv available), then default .env
@@ -97,6 +98,9 @@ class Settings:
         self.RESEND_API_KEY = os.getenv("RESEND_API_KEY")
         self.EMAIL_FROM = os.getenv("EMAIL_FROM")
         self.FRONTEND_BASE = os.getenv("FRONTEND_BASE")
+        # Explicit base URL for OAuth redirect URIs (e.g. https://myapp.com)
+        # When behind a reverse proxy, request.url_for() may produce wrong scheme/host.
+        self.OAUTH_REDIRECT_BASE = os.getenv("OAUTH_REDIRECT_BASE")
 
 
 settings = Settings()

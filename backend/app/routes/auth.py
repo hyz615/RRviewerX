@@ -237,7 +237,11 @@ def trial_status(rr_trial: str | None = Cookie(default=None)):
 async def oauth_start(provider: str, request: Request):
     provider = provider.lower()
     # Base redirect_uri to our callback
-    redirect_uri = str(request.url_for("oauth_callback", provider=provider))
+    # Prefer explicit OAUTH_REDIRECT_BASE to avoid scheme/host mismatch behind proxies
+    if settings.OAUTH_REDIRECT_BASE:
+        redirect_uri = settings.OAUTH_REDIRECT_BASE.rstrip('/') + f"/auth/oauth/{provider}/callback"
+    else:
+        redirect_uri = str(request.url_for("oauth_callback", provider=provider))
     # Capture frontend origin to carry in OAuth state (do NOT mutate redirect_uri, Google requires exact match)
     front = request.query_params.get('front')
     # Use Authlib if configured

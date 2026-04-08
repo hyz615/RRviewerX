@@ -135,6 +135,9 @@
       document.getElementById('try-free').onclick = function () {
         location.href = 'workspace.html';
       };
+
+      // Wrap all apiFetch-dependent code so it runs after deferred scripts (api.js, toast.js)
+      document.addEventListener('DOMContentLoaded', function() {
       async function startOAuth(provider){
         const r = await apiFetch("/auth/login", {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({provider})});
         const j = await r.json();
@@ -191,6 +194,7 @@
           showToast('success', window.__i18n__?__i18n__.t('forgot_sent_tip'):'如果邮箱存在，已发送重置链接，请查收邮件');
         }catch(err){ showToast('error', window.__i18n__?__i18n__.t('request_failed'):'请求失败，请稍后再试'); }
       };
+      }); // end DOMContentLoaded
     </script>
   <footer class="mt-10 py-6 text-center text-xs text-slate-500">©RUR1 INNOVATION & Skyru AI</footer>
   </body>
