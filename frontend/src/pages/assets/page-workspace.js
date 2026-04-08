@@ -53,10 +53,145 @@ document.addEventListener('DOMContentLoaded', async function () {
   function readAllBuckets() {
     try {
       var raw = sessionStorage.getItem('rr_subject_sessions_v1');
-      return raw ? JSON.parse(raw) : {};
+      var parsed = raw ? JSON.parse(raw) : {};
+      var normalized = normalizeBuckets(parsed);
+      if (normalized.changed) {
+        sessionStorage.setItem('rr_subject_sessions_v1', JSON.stringify(normalized.map));
+      }
+      return normalized.map;
     } catch (_) {
       return {};
     }
+  }
+
+  function buildCourseKey(subjectCode, courseName) {
+    return encodeURIComponent(String(subjectCode || '').trim().toLowerCase()) + '|' + encodeURIComponent(String(courseName || '').trim().toLowerCase());
+  }
+
+  function pickCourseName(primary, secondary) {
+    var first = String(primary || '').trim();
+    var second = String(secondary || '').trim();
+    if (first && first !== first.toLowerCase()) {
+      return first;
+    }
+    if (second && second !== second.toLowerCase()) {
+      return second;
+    }
+    return first || second;
+  }
+
+  function uniqueChapterIds(values) {
+    var seen = {};
+    return (values || []).map(function (value) {
+      return String(value || '').trim();
+    }).filter(function (value) {
+      if (!value || seen[value]) {
+        return false;
+      }
+      seen[value] = true;
+      return true;
+    });
+  }
+
+  function mergeSources(left, right) {
+    var merged = [];
+    var indexById = {};
+
+    function appendList(list) {
+      (list || []).forEach(function (item) {
+        if (!item || !item.id) {
+          return;
+        }
+        if (indexById[item.id] === undefined) {
+          indexById[item.id] = merged.length;
+          merged.push(item);
+          return;
+        }
+        var existingIndex = indexById[item.id];
+        var existing = merged[existingIndex] || {};
+        merged[existingIndex] = Object.assign({}, existing, item, {
+          chapterMatches: Array.isArray(item.chapterMatches) && item.chapterMatches.length
+            ? item.chapterMatches
+            : (Array.isArray(existing.chapterMatches) ? existing.chapterMatches : []),
+          courseName: pickCourseName(item.courseName, existing.courseName),
+        });
+      });
+    }
+
+    appendList(left);
+    appendList(right);
+    return merged;
+  }
+
+  function pickLatestReview(left, right) {
+    if (!left) {
+      return right || null;
+    }
+    if (!right) {
+      return left;
+    }
+    return String(right.createdAt || '') > String(left.createdAt || '') ? right : left;
+  }
+
+  function mergeBucket(existing, incoming) {
+    if (!existing) {
+      return incoming;
+    }
+    return {
+      subjectCode: String(incoming.subjectCode || existing.subjectCode || '').trim().toLowerCase(),
+      courseName: pickCourseName(existing.courseName, incoming.courseName),
+      sources: mergeSources(existing.sources, incoming.sources),
+      draftText: String(existing.draftText || '').length >= String(incoming.draftText || '').length
+        ? String(existing.draftText || '')
+        : String(incoming.draftText || ''),
+      courseStructure: (incoming.courseStructure && incoming.courseStructure.hasStructure)
+        ? incoming.courseStructure
+        : (existing.courseStructure || incoming.courseStructure || null),
+      selectedChapterIds: uniqueChapterIds((existing.selectedChapterIds || []).concat(incoming.selectedChapterIds || [])),
+      review: pickLatestReview(existing.review, incoming.review),
+    };
+  }
+
+  function normalizeBuckets(rawMap) {
+    var sourceMap = rawMap && typeof rawMap === 'object' ? rawMap : {};
+    var normalized = {};
+    var changed = false;
+
+    Object.keys(sourceMap).forEach(function (key) {
+      var bucket = sourceMap[key] || {};
+      var parts = key.split('|');
+      var keySubject = decodeURIComponent(parts[0] || '');
+      var keyCourseName = decodeURIComponent(parts[1] || '');
+      var subjectCode = String(bucket.subjectCode || keySubject || '').trim().toLowerCase();
+      var courseName = pickCourseName(bucket.courseName, keyCourseName);
+      var normalizedKey = buildCourseKey(subjectCode, courseName);
+      var normalizedBucket = {
+        subjectCode: subjectCode,
+        courseName: courseName,
+        sources: Array.isArray(bucket.sources) ? bucket.sources.slice() : [],
+        draftText: String(bucket.draftText || ''),
+        courseStructure: bucket.courseStructure || null,
+        selectedChapterIds: uniqueChapterIds(bucket.selectedChapterIds || []),
+        review: bucket.review || null,
+      };
+
+      if (normalizedKey !== key) {
+        changed = true;
+      }
+
+      if (normalized[normalizedKey]) {
+        normalized[normalizedKey] = mergeBucket(normalized[normalizedKey], normalizedBucket);
+        changed = true;
+      } else {
+        normalized[normalizedKey] = normalizedBucket;
+      }
+    });
+
+    if (Object.keys(normalized).length !== Object.keys(sourceMap).length) {
+      changed = true;
+    }
+
+    return { map: normalized, changed: changed };
   }
 
   function renderCourseCard(subjectCode, courseName, bucket) {
@@ -91,10 +226,22 @@ document.addEventListener('DOMContentLoaded', async function () {
     var active = window.RRState.getSubjectContext();
 
     if (active && active.subjectCode) {
-      var activeKey = encodeURIComponent(active.subjectCode) + '|' + encodeURIComponent(active.courseName || '');
+      var activeKey = buildCourseKey(active.subjectCode, active.courseName || '');
       if (!buckets[activeKey]) {
-        buckets[activeKey] = { sources: [], review: null };
+        buckets[activeKey] = {
+          subjectCode: String(active.subjectCode || '').trim().toLowerCase(),
+          courseName: String(active.courseName || '').trim(),
+          sources: [],
+          draftText: '',
+          courseStructure: null,
+          selectedChapterIds: [],
+          review: null,
+        };
         keys.push(activeKey);
+      } else if (active.courseName) {
+        buckets[activeKey] = Object.assign({}, buckets[activeKey], {
+          courseName: pickCourseName(active.courseName, buckets[activeKey].courseName),
+        });
       }
     }
 
@@ -106,13 +253,14 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     courseGridEmpty.classList.add('hidden');
     courseGrid.innerHTML = keys.map(function (key) {
+      var bucket = buckets[key] || {};
       var parts = key.split('|');
-      var subjectCode = decodeURIComponent(parts[0] || '');
-      var courseName = decodeURIComponent(parts[1] || '');
+      var subjectCode = String(bucket.subjectCode || decodeURIComponent(parts[0] || '')).trim().toLowerCase();
+      var courseName = pickCourseName(bucket.courseName, decodeURIComponent(parts[1] || ''));
       if (!subjectCode) {
         return '';
       }
-      return renderCourseCard(subjectCode, courseName, buckets[key] || {});
+      return renderCourseCard(subjectCode, courseName, bucket);
     }).filter(Boolean).join('');
   }
 
@@ -127,9 +275,29 @@ document.addEventListener('DOMContentLoaded', async function () {
       var map = readAllBuckets();
       var changed = false;
       j.courses.forEach(function (c) {
-        var key = encodeURIComponent(c.subject_code || '') + '|' + encodeURIComponent(c.course_name || '');
+        var subjectCode = String(c.subject_code || '').trim().toLowerCase();
+        var courseName = String(c.course_name || '').trim();
+        var key = buildCourseKey(subjectCode, courseName);
         if (!map[key]) {
-          map[key] = { sources: [], review: null };
+          map[key] = {
+            subjectCode: subjectCode,
+            courseName: courseName,
+            sources: [],
+            draftText: '',
+            courseStructure: null,
+            selectedChapterIds: [],
+            review: null,
+          };
+          changed = true;
+          return;
+        }
+
+        var nextName = pickCourseName(map[key].courseName, courseName);
+        if (map[key].courseName !== nextName || map[key].subjectCode !== subjectCode) {
+          map[key] = Object.assign({}, map[key], {
+            subjectCode: subjectCode,
+            courseName: nextName,
+          });
           changed = true;
         }
       });
