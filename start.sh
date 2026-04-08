@@ -243,6 +243,7 @@ start_backend() {
 
 start_frontend() {
   local port="$1"
+  local be_port="$2"
   local pages_dir="frontend/src/pages"
   local frontend_pid
 
@@ -260,6 +261,46 @@ start_frontend() {
     fi
   fi
 
+  # Prefer nginx (reverse-proxies backend on same port — no need to expose :8000)
+  if test_cmd nginx; then
+    local abs_pages
+    abs_pages="$(cd "$pages_dir" && pwd)"
+    local conf_dir="/etc/nginx/sites-enabled"
+    local conf_avail="/etc/nginx/sites-available"
+    local conf_file="rrviewer.conf"
+
+    write_step "Configuring nginx reverse-proxy (port $port -> backend $be_port) ..."
+    sed \
+      -e "s|__FRONTEND_PORT__|$port|g" \
+      -e "s|__BACKEND_PORT__|$be_port|g" \
+      -e "s|__PAGES_DIR__|$abs_pages|g" \
+      nginx-site.conf.template > ".run/$conf_file"
+
+    # Install config into nginx
+    if [[ -d "$conf_avail" ]]; then
+      sudo cp -f ".run/$conf_file" "$conf_avail/$conf_file"
+      sudo ln -sf "$conf_avail/$conf_file" "$conf_dir/$conf_file"
+      # Remove default site if it conflicts on same port
+      if [[ -e "$conf_dir/default" ]]; then
+        sudo rm -f "$conf_dir/default"
+      fi
+    else
+      # Fallback: put config in conf.d
+      sudo cp -f ".run/$conf_file" "/etc/nginx/conf.d/$conf_file"
+    fi
+
+    sudo nginx -t 2>/dev/null || { write_err "nginx config test failed"; exit 1; }
+    sudo systemctl reload nginx 2>/dev/null \
+      || sudo nginx -s reload 2>/dev/null \
+      || { write_err "Failed to reload nginx"; exit 1; }
+
+    write_ok "Frontend started via nginx (port $port, reverse-proxy to backend $be_port)"
+    echo "nginx" > .run/frontend.pid
+    return
+  fi
+
+  # Fallback: Python http.server (no reverse-proxy — port 8000 must be reachable)
+  write_warn "nginx not found; using Python http.server (port $be_port must be open externally)"
   write_step "Starting frontend -> http://localhost:$port"
   nohup "$VENV_PYTHON" -m http.server "$port" --directory "$pages_dir" > .run/frontend.log 2>&1 &
   frontend_pid=$!
@@ -372,14 +413,18 @@ case "$MODE" in
     fi
 
     start_backend "$BACKEND_PORT" "$FRONTEND_PORT" "$WORKERS"
-    start_frontend "$FRONTEND_PORT"
+    start_frontend "$FRONTEND_PORT" "$BACKEND_PORT"
 
     printf '\n'
     printf '  -----------------------------------------\n'
     printf '    Frontend : http://localhost:%s/index.html\n' "$FRONTEND_PORT"
     printf '    Backend  : http://localhost:%s\n' "$BACKEND_PORT"
     printf '    Logs     : .run/backend.log, .run/frontend.log\n'
-    printf '    Stop     : kill $(cat .run/backend.pid) $(cat .run/frontend.pid)\n'
+    if [[ -f .run/frontend.pid ]] && grep -q nginx .run/frontend.pid 2>/dev/null; then
+      printf '    Stop     : kill $(cat .run/backend.pid); sudo nginx -s stop\n'
+    else
+      printf '    Stop     : kill $(cat .run/backend.pid) $(cat .run/frontend.pid)\n'
+    fi
     printf '  -----------------------------------------\n'
     printf '\n'
 
