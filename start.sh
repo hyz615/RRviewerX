@@ -181,9 +181,14 @@ build_allowed_origins() {
   local fe_port="$1"
   local ip
   local joined=""
+  # For default HTTP port (80), browsers omit the port from the Origin header.
+  local port_suffix=":$fe_port"
+  if (( fe_port == 80 )); then
+    port_suffix=""
+  fi
   local origins=(
-    "http://localhost:$fe_port"
-    "http://127.0.0.1:$fe_port"
+    "http://localhost${port_suffix}"
+    "http://127.0.0.1${port_suffix}"
     "http://localhost:5173"
     "http://localhost:3000"
   )
@@ -192,7 +197,7 @@ build_allowed_origins() {
     if [[ "$ip" == *:* ]] || [[ "$ip" == 127.* ]]; then
       continue
     fi
-    origins+=("http://${ip}:$fe_port")
+    origins+=("http://${ip}${port_suffix}")
   done
 
   for ip in "${origins[@]}"; do
