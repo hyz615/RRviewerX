@@ -120,7 +120,7 @@ ensure_venv() {
   py_cmd="$(find_python)"
 
   if ! "$py_cmd" -m venv .venv; then
-    write_err "Failed to create .venv. On Ubuntu 22.04 run: sudo apt update && sudo apt install -y python3-venv"
+    write_err "Failed to create .venv. On Ubuntu run: sudo apt install -y python3-venv"
     exit 1
   fi
 
@@ -161,6 +161,14 @@ install_deps() {
     fi
   else
     write_ok "tesseract-ocr found"
+  fi
+
+  # Ensure pip is available inside the venv (some distros strip it)
+  if ! "$VENV_PYTHON" -m pip --version >/dev/null 2>&1; then
+    write_step "Bootstrapping pip in venv ..."
+    "$VENV_PYTHON" -m ensurepip --default-pip 2>/dev/null \
+      || { write_err "pip missing and ensurepip failed. Run: sudo apt install -y python3-pip python3-venv && rm -rf .venv"; exit 1; }
+    write_ok "pip bootstrapped"
   fi
 
   write_step "Installing backend dependencies ..."
