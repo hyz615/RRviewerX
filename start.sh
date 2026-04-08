@@ -268,15 +268,22 @@ start_frontend() {
   if test_cmd nginx; then
     local abs_pages
     abs_pages="$(cd "$pages_dir" && pwd)"
+    local www_root="/var/www/rrviewer"
     local conf_dir="/etc/nginx/sites-enabled"
     local conf_avail="/etc/nginx/sites-available"
     local conf_file="rrviewer.conf"
+
+    # Ensure nginx worker (www-data) can read the files
+    sudo mkdir -p "$www_root"
+    sudo rm -rf "$www_root"
+    sudo cp -a "$abs_pages" "$www_root"
+    sudo chown -R www-data:www-data "$www_root"
 
     write_step "Configuring nginx reverse-proxy (port $port -> backend $be_port) ..."
     sed \
       -e "s|__FRONTEND_PORT__|$port|g" \
       -e "s|__BACKEND_PORT__|$be_port|g" \
-      -e "s|__PAGES_DIR__|$abs_pages|g" \
+      -e "s|__PAGES_DIR__|$www_root|g" \
       nginx-site.conf.template > ".run/$conf_file"
 
     # Install config into nginx
@@ -292,7 +299,7 @@ start_frontend() {
       sudo cp -f ".run/$conf_file" "/etc/nginx/conf.d/$conf_file"
     fi
 
-    sudo nginx -t 2>/dev/null || { write_err "nginx config test failed"; exit 1; }
+    sudo nginx -t || { write_err "nginx config test failed"; exit 1; }
     sudo systemctl reload nginx 2>/dev/null \
       || sudo nginx -s reload 2>/dev/null \
       || { write_err "Failed to reload nginx"; exit 1; }
