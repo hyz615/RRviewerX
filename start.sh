@@ -405,8 +405,38 @@ assert_workers_value "$WORKERS"
 
 write_banner
 
+# Kill previous run's backend if still alive
+stop_previous() {
+  if [[ -f .run/backend.pid ]]; then
+    local old_pid
+    old_pid="$(cat .run/backend.pid 2>/dev/null || true)"
+    if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
+      write_step "Stopping previous backend (PID $old_pid) ..."
+      kill "$old_pid" 2>/dev/null || true
+      sleep 1
+      # Force-kill if still alive
+      kill -0 "$old_pid" 2>/dev/null && kill -9 "$old_pid" 2>/dev/null || true
+      write_ok "Previous backend stopped"
+    fi
+    rm -f .run/backend.pid
+  fi
+  if [[ -f .run/frontend.pid ]]; then
+    local fe_pid
+    fe_pid="$(cat .run/frontend.pid 2>/dev/null || true)"
+    if [[ "$fe_pid" == "nginx" ]]; then
+      : # nginx will be reloaded, no need to stop
+    elif [[ -n "$fe_pid" ]] && kill -0 "$fe_pid" 2>/dev/null; then
+      write_step "Stopping previous frontend (PID $fe_pid) ..."
+      kill "$fe_pid" 2>/dev/null || true
+      write_ok "Previous frontend stopped"
+    fi
+    rm -f .run/frontend.pid
+  fi
+}
+
 case "$MODE" in
   local)
+    stop_previous
     ensure_venv
 
     if (( SKIP_DEPS == 0 )); then
