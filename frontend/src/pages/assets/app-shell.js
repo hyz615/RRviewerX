@@ -269,6 +269,11 @@
       return;
     }
 
+    if (!isLoggedIn()) {
+      container.innerHTML = '';
+      return;
+    }
+
     const context = window.RRState ? window.RRState.getSubjectContext() : null;
     const INNER_TABS = [
       { id: 'upload',  href: 'upload.html',  labelKey: 'course_tab_materials' },
@@ -350,23 +355,10 @@
     }
 
     if (usageLabel && usageValue && vipBadge) {
-      if (isLoggedIn() && shellState.quota) {
-        usageLabel.textContent = t('monthly_usage');
-        if (shellState.quota.vip) {
-          usageValue.textContent = t('vip_unlimited');
-          vipBadge.textContent = t('level_vip');
-          vipBadge.classList.remove('hidden');
-        } else {
-          usageValue.textContent = String(shellState.quota.used || 0) + '/' + String(shellState.quota.limit || 0);
-          vipBadge.classList.add('hidden');
-          vipBadge.textContent = '';
-        }
-      } else {
-        usageLabel.textContent = t('trial_remaining');
-        usageValue.textContent = shellState.trial && shellState.trial.trial_used ? '0/1' : '1/1';
-        vipBadge.classList.add('hidden');
-        vipBadge.textContent = '';
-      }
+      usageLabel.textContent = t('shell_mode_label');
+      usageValue.textContent = isLoggedIn() ? t('shell_mode_member') : t('shell_mode_guest');
+      vipBadge.classList.add('hidden');
+      vipBadge.textContent = '';
     }
 
     if (loginLink && logoutLink) {
@@ -387,21 +379,13 @@
       shellState.ai = null;
     }
 
-    if (isLoggedIn()) {
-      try {
-        shellState.quota = await fetchJSON('/status/quota', { headers: authHeaders() });
-      } catch (_) {
-        shellState.quota = null;
-      }
-      shellState.trial = null;
-    } else {
-      try {
-        shellState.trial = await fetchJSON('/auth/trial-status');
-      } catch (_) {
-        shellState.trial = null;
-      }
+    try {
+      shellState.quota = await fetchJSON('/status/quota', isLoggedIn() ? { headers: authHeaders() } : undefined);
+    } catch (_) {
       shellState.quota = null;
     }
+
+    shellState.trial = null;
 
     updateShellStatus();
     return {
@@ -542,40 +526,117 @@
     URL.revokeObjectURL(url);
   }
 
+  function getPrintHeadMarkup() {
+    return Array.from(document.querySelectorAll('link[rel="stylesheet"], style')).map(function (node) {
+      return node.outerHTML;
+    }).join('\n');
+  }
+
+  function waitForPrintWindow(popup, callback) {
+    let done = false;
+    const finish = function () {
+      if (done) {
+        return;
+      }
+      done = true;
+      callback();
+    };
+
+    const pending = [];
+    const images = Array.from(popup.document.images || []);
+    images.forEach(function (image) {
+      if (image.complete) {
+        return;
+      }
+      pending.push(new Promise(function (resolve) {
+        image.addEventListener('load', resolve, { once: true });
+        image.addEventListener('error', resolve, { once: true });
+      }));
+    });
+
+    if (popup.document.fonts && popup.document.fonts.ready) {
+      pending.push(popup.document.fonts.ready.catch(function () {}));
+    }
+
+    Promise.all(pending).finally(function () {
+      popup.setTimeout(finish, 80);
+    });
+
+    popup.setTimeout(finish, 1500);
+  }
+
   function printElement(title, element) {
     if (!element) {
       return false;
     }
 
-    const popup = window.open('', '_blank', 'noopener,noreferrer');
+    const popup = window.open('', '_blank');
     if (!popup) {
       return false;
     }
 
+    const headMarkup = getPrintHeadMarkup();
+    const bodyClass = escapeHtml(document.body ? document.body.className || '' : '');
+    const lang = escapeHtml(document.documentElement.lang || 'zh-cn');
+    const baseHref = escapeHtml(document.baseURI || window.location.href);
+    let queued = false;
+
+    const queuePrint = function () {
+      if (queued) {
+        return;
+      }
+      queued = true;
+      waitForPrintWindow(popup, function () {
+        popup.focus();
+        popup.print();
+      });
+    };
+
+    popup.addEventListener('afterprint', function () {
+      popup.close();
+    }, { once: true });
+
     popup.document.open();
     popup.document.write([
       '<!doctype html>',
-      '<html lang="' + escapeHtml(document.documentElement.lang || 'zh-cn') + '">',
+      '<html lang="' + lang + '">',
       '<head>',
       '  <meta charset="utf-8" />',
+      '  <base href="' + baseHref + '" />',
       '  <title>' + escapeHtml(title || 'RRviewer') + '</title>',
+      headMarkup,
       '  <style>',
-      '    body{font-family:Segoe UI,Arial,sans-serif;margin:32px;color:#0f172a;line-height:1.6;}',
-      '    pre{white-space:pre-wrap;word-break:break-word;background:#f8fafc;padding:1rem;border-radius:12px;}',
+      '    @page{size:auto;margin:14mm;}',
+      '    html,body,body.page-surface{background:#fff !important;color:#0f172a !important;}',
+      '    body{margin:0;font-family:Segoe UI,Arial,sans-serif;line-height:1.6;-webkit-print-color-adjust:exact;print-color-adjust:exact;}',
+      '    .print-sheet{padding:0;}',
+      '    .result-frame{min-height:0 !important;padding:0 !important;border:none !important;background:none !important;overflow:visible !important;}',
+      '    .prose{max-width:none !important;}',
+      '    .topbar,.topbar-spacer,.course-header,.app-footer,.flow-dock{display:none !important;}',
+      '    pre{white-space:pre-wrap !important;word-break:break-word !important;background:#f8fafc !important;padding:1rem !important;border-radius:12px !important;}',
       '    code{font-family:Consolas,Monaco,monospace;}',
       '    table{width:100%;border-collapse:collapse;}',
-      '    th,td{border:1px solid #cbd5e1;padding:.45rem .6rem;text-align:left;}',
-      '    img{max-width:100%;}',
+      '    th,td{border:1px solid #cbd5e1;padding:.45rem .6rem;text-align:left;vertical-align:top;}',
+      '    img,svg{max-width:100% !important;height:auto !important;}',
+      '    a{color:inherit !important;text-decoration:none !important;}',
       '  </style>',
       '</head>',
-      '<body>',
+      '<body class="' + bodyClass + '">',
+      '<main class="print-sheet">',
       element.innerHTML,
+      '</main>',
       '</body>',
       '</html>',
     ].join(''));
     popup.document.close();
-    popup.focus();
-    popup.print();
+
+    if (popup.document.readyState === 'complete') {
+      queuePrint();
+    } else {
+      popup.addEventListener('load', queuePrint, { once: true });
+      popup.setTimeout(queuePrint, 1500);
+    }
+
     return true;
   }
 

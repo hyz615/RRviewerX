@@ -12,7 +12,7 @@ import os
 from sqlmodel import Session, select
 from ..core.db import get_session
 from ..models.entities import LocalUser
-from ..models.models import User as OauthUser, Vip
+from ..models.models import User as OauthUser
 import bcrypt
 import base64, os, random, string, time
 import jwt
@@ -98,23 +98,6 @@ def register_local(request: Request, payload: RegisterLocal, session: Session = 
     user = LocalUser(email=email, password_hash=pw_hash)
     session.add(user)
     session.commit()
-    # Auto-grant 365-day VIP for newly registered local users
-    try:
-        user_key = f"local:{user.id}"
-        now = datetime.now(timezone.utc)
-        v = session.exec(select(Vip).where(Vip.user_key == user_key)).first()
-        if not v:
-            v = Vip(user_key=user_key, is_vip=True, expires_at=now + timedelta(days=365))
-            session.add(v)
-        else:
-            start = v.expires_at if v.expires_at and v.expires_at > now else now
-            v.is_vip = True
-            v.expires_at = start + timedelta(days=365)
-            session.add(v)
-        session.commit()
-    except Exception:
-        # Non-fatal: proceed even if VIP grant fails
-        pass
     token = sign_jwt(f"local:{user.id}", "local")
     return {"ok": True, "token": token}
 
@@ -247,8 +230,7 @@ def reset_password(payload: ResetPayload, session: Session = Depends(get_session
 
 @router.get("/trial-status")
 def trial_status(rr_trial: str | None = Cookie(default=None)):
-    # active means in-progress free trial; treat as used for UI (can't start another), but backend still allows
-    return {"trial_used": rr_trial in ("used", "active")}
+    return {"trial_used": False}
 
 
 @router.get("/oauth/{provider}/start")
@@ -363,24 +345,6 @@ async def oauth_callback(provider: str, request: Request, response: Response, co
                     ou.disabled=False; ou.ban_reason=None; ou.ban_expires_at=None; s.add(ou); s.commit()
                 else:
                     return JSONResponse({"ok": False, "error": (ou.ban_reason or "User disabled")}, status_code=403)
-            # Auto-grant 365-day VIP on first OAuth login (user created now)
-            try:
-                if created and ou:
-                    user_key = f"{provider}:{sub}"
-                    now = datetime.now(timezone.utc)
-                    v = s.exec(select(Vip).where(Vip.user_key == user_key)).first()
-                    if not v:
-                        v = Vip(user_key=user_key, is_vip=True, expires_at=now + timedelta(days=365))
-                        s.add(v)
-                    else:
-                        start = v.expires_at if v.expires_at and v.expires_at > now else now
-                        v.is_vip = True
-                        v.expires_at = start + timedelta(days=365)
-                        s.add(v)
-                    s.commit()
-            except Exception:
-                # Non-fatal
-                pass
     except Exception:
         pass
     app_token = sign_jwt(sub, provider)

@@ -15,20 +15,34 @@ document.addEventListener('DOMContentLoaded', async function () {
   const sessionEmpty = document.getElementById('session-empty');
   const selectedEmpty = document.getElementById('selected-empty');
   const libraryNote = document.getElementById('server-library-note');
+  const serverSection = document.getElementById('upload-server-section');
   const refreshButton = document.getElementById('btn-refresh-server');
   const clearServerButton = document.getElementById('btn-clear-server');
   const clearSessionButton = document.getElementById('btn-clear-session');
+  const clearSelectedButton = document.getElementById('btn-clear-selected');
+  const goReviewButton = document.getElementById('btn-go-review');
+  const uploadActionDock = document.getElementById('upload-action-dock');
+  const uploadSummarySelected = document.getElementById('upload-summary-selected');
+  const uploadSummaryDraft = document.getElementById('upload-summary-draft');
+  const uploadSummaryMode = document.getElementById('upload-summary-mode');
+  const uploadSummaryText = document.getElementById('upload-summary-text');
+  const uploadSummaryPreview = document.getElementById('upload-summary-preview');
   const structureNote = document.getElementById('upload-structure-note');
+  const structureDetails = document.getElementById('structure-details');
   const structureEditor = document.getElementById('upload-structure-editor');
   const structureBadge = document.getElementById('structure-summary-badge');
   const addUnitButton = document.getElementById('btn-add-unit');
   const saveStructureButton = document.getElementById('btn-save-structure');
 
-  // Context guard: if no course selected, redirect to workspace
+  // Logged-in users enter via course mode; guests can use upload/review directly.
   const _initContext = window.RRState.getSubjectContext();
-  if (!_initContext || !_initContext.subjectCode) {
+  if (window.RRApp.isLoggedIn() && (!_initContext || !_initContext.subjectCode)) {
     location.href = 'workspace.html';
     return;
+  }
+
+  if (structureDetails) {
+    structureDetails.classList.toggle('hidden', !window.RRApp.isLoggedIn());
   }
 
   let structureDraft = { units: [] };
@@ -41,6 +55,14 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   function escapeHtml(value) {
     return window.RRApp.escapeHtml(value);
+  }
+
+  function interpolate(key, params) {
+    let value = t(key);
+    Object.keys(params || {}).forEach(function (name) {
+      value = value.replace('{' + name + '}', String(params[name]));
+    });
+    return value;
   }
 
   function populateSelect(select, options, selectedValue) {
@@ -114,8 +136,49 @@ document.addEventListener('DOMContentLoaded', async function () {
     return new Intl.NumberFormat().format(Number(value || 0));
   }
 
+  function buildInputPreview(selectedSources, draftValue) {
+    const names = selectedSources.map(function (item) {
+      return String(item.name || '').trim();
+    }).filter(Boolean);
+    if (names.length) {
+      const preview = names.slice(0, 3).join(' · ');
+      return names.length > 3 ? preview + ' +' + (names.length - 3) : preview;
+    }
+    const compact = String(draftValue || '').replace(/\s+/g, ' ').trim();
+    if (!compact) {
+      return '';
+    }
+    return compact.length > 96 ? compact.slice(0, 96) + '...' : compact;
+  }
+
+  function renderActionDock() {
+    const selectedSources = window.RRState.getSelectedSources();
+    const draftValue = draftText.value.trim();
+    const selectedCount = selectedSources.length;
+    const draftChars = draftValue.length;
+    const hasInput = selectedCount > 0 || draftChars > 0;
+    const preview = buildInputPreview(selectedSources, draftValue);
+
+    uploadSummarySelected.textContent = selectedCount
+      ? interpolate('flow_selected_count', { n: formatCount(selectedCount) })
+      : t('flow_selected_none');
+    uploadSummaryDraft.textContent = draftChars
+      ? interpolate('flow_draft_count', { n: formatCount(draftChars) })
+      : t('flow_draft_none');
+    uploadSummaryMode.textContent = t(window.RRApp.isLoggedIn() ? 'shell_mode_member' : 'shell_mode_guest');
+    uploadSummaryText.textContent = hasInput
+      ? t(window.RRApp.isLoggedIn() ? 'upload_flow_ready_member' : 'upload_flow_ready_guest')
+      : t('upload_flow_empty');
+    uploadSummaryPreview.textContent = preview;
+    uploadSummaryPreview.classList.toggle('hidden', !preview);
+    uploadActionDock.classList.toggle('is-ready', hasInput);
+    goReviewButton.disabled = !hasInput;
+    clearSelectedButton.disabled = !selectedCount;
+  }
+
   function renderDraftCount() {
     draftCount.textContent = formatCount(draftText.value.trim().length);
+    renderActionDock();
   }
 
   function canEditStructure() {
@@ -310,7 +373,6 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   function renderLists() {
     const sources = window.RRState.getSources();
-    const context = window.RRState.getSubjectContext();
     const structure = getSavedStructure();
     const serverItems = sources.filter(function (item) {
       return item.kind === 'file';
@@ -319,9 +381,11 @@ document.addEventListener('DOMContentLoaded', async function () {
       return item.kind === 'session';
     });
 
+    serverSection.classList.toggle('hidden', !window.RRApp.isLoggedIn());
+
     libraryNote.textContent = window.RRApp.isLoggedIn()
       ? formatStructureSummary(structure) || ''
-      : t('files_need_login');
+      : t('guest_session_only_note');
 
     serverList.innerHTML = serverItems.map(function (item) {
       return sourceCard(item, false);
@@ -558,6 +622,14 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
   }
 
+  function clearSelectedSources() {
+    window.RRState.getSelectedSources().forEach(function (source) {
+      window.RRState.setSourceSelected(source.id, false);
+    });
+    renderLists();
+    window.showToast('success', t('cleared'));
+  }
+
   function onStructureClick(event) {
     const button = event.target.closest('[data-action]');
     if (!button) {
@@ -693,6 +765,16 @@ document.addEventListener('DOMContentLoaded', async function () {
     window.RRState.clearSessionSources();
     renderLists();
     window.showToast('success', t('cleared'));
+  });
+  clearSelectedButton.addEventListener('click', clearSelectedSources);
+  goReviewButton.addEventListener('click', function () {
+    saveDraft(false);
+    if (!window.RRState.getSelectedSources().length && !draftText.value.trim()) {
+      window.showToast('info', t('upload_flow_empty'));
+      draftText.focus();
+      return;
+    }
+    location.href = 'review.html';
   });
   serverList.addEventListener('click', function (event) {
     onSourceAction(event);

@@ -1336,6 +1336,54 @@ body.page-surface {
   white-space: pre-wrap;
 }
 
+.flow-dock {
+  position: sticky;
+  top: 4.75rem;
+  z-index: 8;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card-bg) 94%, var(--bg));
+  box-shadow: 0 14px 28px var(--shadow-color);
+}
+
+.flow-dock.is-ready {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+}
+
+.flow-dock__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.flow-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 78%, var(--card-bg));
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.flow-dock__copy {
+  margin-top: 0.72rem;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.flow-dock__preview {
+  margin-top: 0.6rem;
+  color: var(--muted);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .history-list {
   display: flex;
   flex-direction: column;
@@ -1479,6 +1527,11 @@ body.page-surface {
 
   .context-summary--wide {
     grid-column: span 1;
+  }
+
+  .flow-dock {
+    position: static;
+    top: auto;
   }
 }
 

@@ -1,18 +1,15 @@
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List
 from sqlmodel import Session
 from ..core.db import get_session
-from ..core.deps import require_auth_or_trial, get_user_key
-from ..models.models import ReviewSheet, Vip, MonthlyUsage
-from ..services.agent_service import answer_questions, llm
+from ..core.deps import get_current_user
+from ..models.models import ReviewSheet
+from ..services.agent_service import answer_questions
 from starlette.concurrency import run_in_threadpool
 from ..services.embedding_service import embed_texts
-from ..core.config import settings
 import json
-from datetime import date, datetime
-from sqlmodel import select
 
 
 router = APIRouter()
@@ -26,15 +23,14 @@ class ChatRequest(BaseModel):
 
 
 @router.post("")
-async def chat(payload: ChatRequest, ctx=Depends(require_auth_or_trial), session: Session = Depends(get_session), user_key: str | None = Depends(get_user_key)):
-    # Chat does not consume or enforce usage limits (only generation does)
-    def can_use_and_increment(inc: int) -> tuple[bool, str | None]:
-        return True, None
+async def chat(payload: ChatRequest, session: Session = Depends(get_session), uid: int | None = Depends(get_current_user)):
+    if uid is None:
+        raise HTTPException(status_code=401, detail="Login required")
     # Load context if review_sheet_id provided
     def load_context(limit: int = 4000) -> str:
         if payload.review_sheet_id:
             rs = session.get(ReviewSheet, int(payload.review_sheet_id))
-            if rs and rs.content and (ctx.get("user_id") is None or rs.user_id == ctx.get("user_id")):
+            if rs and rs.content and rs.user_id == uid:
                 try:
                     data = json.loads(rs.content)
                     return json.dumps(data, ensure_ascii=False)[:limit]
@@ -58,16 +54,18 @@ async def chat(payload: ChatRequest, ctx=Depends(require_auth_or_trial), session
 
 
 @router.post("/stream")
-async def chat_stream(payload: ChatRequest, ctx=Depends(require_auth_or_trial), session: Session = Depends(get_session)):
+async def chat_stream(payload: ChatRequest, session: Session = Depends(get_session), uid: int | None = Depends(get_current_user)):
     """Server-Sent Events streaming single question with reference segments.
     Fallback to mock if no real llm client."""
+    if uid is None:
+        raise HTTPException(status_code=401, detail="Login required")
     if not payload.question:
         return Response(content="missing question", status_code=400)
     # load review context
     context_text = ""
     if payload.review_sheet_id:
         rs = session.get(ReviewSheet, int(payload.review_sheet_id))
-        if rs and rs.content:
+        if rs and rs.content and rs.user_id == uid:
             try:
                 data = json.loads(rs.content)
                 context_text = json.dumps(data, ensure_ascii=False)

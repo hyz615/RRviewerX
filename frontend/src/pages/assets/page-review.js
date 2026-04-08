@@ -1,8 +1,8 @@
 document.addEventListener('DOMContentLoaded', async function () {
-  const shellContext = await window.RRApp.initPage('review');
+  await window.RRApp.initPage('review');
 
   const _initContext = window.RRState.getSubjectContext();
-  if (!_initContext || !_initContext.subjectCode) {
+  if (window.RRApp.isLoggedIn() && (!_initContext || !_initContext.subjectCode)) {
     location.href = 'workspace.html';
     return;
   }
@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   const charCount = document.getElementById('char-count');
   const draftStatus = document.getElementById('draft-status');
   const generateButton = document.getElementById('btn-generate');
+  const generateTopButton = document.getElementById('btn-generate-top');
   const copyButton = document.getElementById('btn-copy');
   const exportMdButton = document.getElementById('btn-export-md');
   const exportPdfButton = document.getElementById('btn-export-pdf');
@@ -29,12 +30,23 @@ document.addEventListener('DOMContentLoaded', async function () {
   const sourcesEmpty = document.getElementById('review-sources-empty');
   const examTypeSelect = document.getElementById('review-exam-type');
   const examNameInput = document.getElementById('review-exam-name');
+  const chapterSection = document.getElementById('review-chapter-section');
   const chapterNote = document.getElementById('review-chapter-note');
   const chapterGroups = document.getElementById('review-chapter-groups');
   const chapterEmpty = document.getElementById('review-chapter-empty');
+  const reviewOpenChat = document.getElementById('review-open-chat');
+  const reviewOpenHistory = document.getElementById('review-open-history');
+  const reviewActionDock = document.getElementById('review-action-dock');
+  const reviewSummarySelected = document.getElementById('review-summary-selected');
+  const reviewSummaryDraft = document.getElementById('review-summary-draft');
+  const reviewSummaryMode = document.getElementById('review-summary-mode');
+  const reviewSummaryText = document.getElementById('review-summary-text');
+  const reviewSummaryPreview = document.getElementById('review-summary-preview');
 
   let draftTimer = 0;
   let currentLength = 'medium';
+  let canGenerate = false;
+  let generateBusy = false;
 
   function t(key) {
     return window.RRApp.t(key);
@@ -73,6 +85,62 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   function formatCount(value) {
     return new Intl.NumberFormat().format(Number(value || 0));
+  }
+
+  function getRenderableSources() {
+    const selected = window.RRState.getSelectedSources();
+    const currentReview = window.RRState.getCurrentReview();
+    const restored = !selected.length && currentReview && Array.isArray(currentReview.sourceLabels)
+      ? currentReview.sourceLabels.map(function (label) {
+          return { name: label, kind: 'restored' };
+        })
+      : [];
+    return selected.length ? selected : restored;
+  }
+
+  function buildInputPreview(items, draftValue) {
+    const names = items.map(function (item) {
+      return String(item.name || '').trim();
+    }).filter(Boolean);
+    if (names.length) {
+      const preview = names.slice(0, 3).join(' · ');
+      return names.length > 3 ? preview + ' +' + (names.length - 3) : preview;
+    }
+    const compact = String(draftValue || '').replace(/\s+/g, ' ').trim();
+    if (!compact) {
+      return '';
+    }
+    return compact.length > 120 ? compact.slice(0, 120) + '...' : compact;
+  }
+
+  function renderActionDock() {
+    const items = window.RRState.getSelectedSources();
+    const sourcePayload = window.RRState.getReviewPayload();
+    const draftValue = sourceText.value.trim();
+    const selectedCount = items.length;
+    const draftChars = draftValue.length;
+    const chapterCount = window.RRApp.isLoggedIn() ? sourcePayload.chapterIds.length : 0;
+    const hasInput = selectedCount > 0 || sourcePayload.inlineTexts.length > 0 || draftChars > 0 || chapterCount > 0;
+    const preview = buildInputPreview(items, draftValue) || (chapterCount ? getSelectedChapterSummary() : '');
+
+    canGenerate = hasInput;
+    reviewSummarySelected.textContent = selectedCount
+      ? interpolate('flow_selected_count', { n: formatCount(selectedCount) })
+      : t('flow_selected_none');
+    reviewSummaryDraft.textContent = draftChars
+      ? interpolate('flow_draft_count', { n: formatCount(draftChars) })
+      : t('flow_draft_none');
+    reviewSummaryMode.textContent = t(window.RRApp.isLoggedIn() ? 'shell_mode_member' : 'shell_mode_guest');
+    reviewSummaryText.textContent = hasInput
+      ? t(window.RRApp.isLoggedIn() ? 'review_flow_ready_member' : 'review_flow_ready_guest')
+      : t('review_flow_empty');
+    reviewSummaryPreview.textContent = preview;
+    reviewSummaryPreview.classList.toggle('hidden', !preview);
+    reviewActionDock.classList.toggle('is-ready', hasInput);
+    if (!generateBusy) {
+      generateButton.disabled = !canGenerate;
+      generateTopButton.disabled = !canGenerate;
+    }
   }
 
   function setStoredValue(key, value) {
@@ -133,7 +201,30 @@ document.addEventListener('DOMContentLoaded', async function () {
     examNameInput.value = review && review.examName ? review.examName : '';
   }
 
+  function syncModeUI() {
+    const courseMode = window.RRApp.isLoggedIn();
+    if (chapterSection) {
+      chapterSection.classList.toggle('hidden', !courseMode);
+    }
+    if (reviewOpenChat) {
+      reviewOpenChat.classList.toggle('hidden', !courseMode);
+    }
+    if (reviewOpenHistory) {
+      reviewOpenHistory.classList.toggle('hidden', !courseMode);
+    }
+    if (!courseMode) {
+      window.RRState.setSelectedChapterIds([]);
+    }
+  }
+
   async function loadCourseStructure() {
+    if (!window.RRApp.isLoggedIn()) {
+      window.RRState.setCourseStructure(null);
+      window.RRState.setSelectedChapterIds([]);
+      renderChapterScope();
+      return;
+    }
+
     const context = window.RRState.getSubjectContext();
     if (!context.courseName) {
       window.RRState.setCourseStructure(null);
@@ -170,18 +261,12 @@ document.addEventListener('DOMContentLoaded', async function () {
   }
 
   function renderSources() {
-    const selected = window.RRState.getSelectedSources();
-    const currentReview = window.RRState.getCurrentReview();
-    const restored = !selected.length && currentReview && Array.isArray(currentReview.sourceLabels)
-      ? currentReview.sourceLabels.map(function (label) {
-          return { name: label, kind: 'restored' };
-        })
-      : [];
-    const items = selected.length ? selected : restored;
+    const items = getRenderableSources();
 
     if (!items.length) {
       sourcesBox.innerHTML = '';
       sourcesEmpty.classList.remove('hidden');
+      renderActionDock();
       return;
     }
 
@@ -197,9 +282,16 @@ document.addEventListener('DOMContentLoaded', async function () {
         '</span>',
       ].join('');
     }).join('');
+    renderActionDock();
   }
 
   function renderChapterScope() {
+    if (!window.RRApp.isLoggedIn()) {
+      chapterGroups.innerHTML = '';
+      chapterEmpty.classList.add('hidden');
+      return;
+    }
+
     const context = window.RRState.getSubjectContext();
     const structure = window.RRState.getCourseStructure();
     const review = window.RRState.getCurrentReview();
@@ -278,19 +370,14 @@ document.addEventListener('DOMContentLoaded', async function () {
       return;
     }
 
-    const canUseLong = Boolean(shellContext && shellContext.quota && shellContext.quota.vip);
-    longButton.disabled = !canUseLong;
-    longButton.title = canUseLong ? '' : t('vip_only_long');
-    if (!canUseLong && currentLength === 'long') {
-      currentLength = 'medium';
-      setStoredValue(LENGTH_KEY, currentLength);
-      renderLengthButtons();
-    }
+    longButton.disabled = false;
+    longButton.title = '';
   }
 
   function renderDraftMeta(message) {
     charCount.textContent = formatCount(sourceText.value.trim().length);
     draftStatus.textContent = message || '';
+    renderActionDock();
   }
 
   function setProgress(label, percentage) {
@@ -337,23 +424,28 @@ document.addEventListener('DOMContentLoaded', async function () {
   }
 
   function setGenerateBusy(busy) {
-    generateButton.disabled = Boolean(busy);
-    generateButton.textContent = busy ? t('generating') : t('generate_btn');
+    generateBusy = Boolean(busy);
+    generateButton.disabled = generateBusy || !canGenerate;
+    generateTopButton.disabled = generateBusy || !canGenerate;
+    generateButton.textContent = generateBusy ? t('generating') : t('generate_btn');
+    generateTopButton.textContent = generateBusy ? t('generating') : t('generate_btn');
   }
 
   function buildPayload() {
     const sourcePayload = window.RRState.getReviewPayload();
+    const courseMode = window.RRApp.isLoggedIn();
+    const context = window.RRState.getSubjectContext();
     const inlineParts = sourcePayload.inlineTexts.concat(sourceText.value.trim() ? [sourceText.value.trim()] : []);
     return {
       format: formatSelect.value,
       lang: (document.documentElement.lang || '').toLowerCase().indexOf('en') === 0 ? 'en' : 'zh',
       length: currentLength,
-      subject_code: window.RRState.getSubjectContext().subjectCode || undefined,
-      course_name: window.RRState.getSubjectContext().courseName || undefined,
+      subject_code: courseMode ? (context.subjectCode || undefined) : undefined,
+      course_name: courseMode ? (context.courseName || undefined) : undefined,
       exam_type: examTypeSelect.value || undefined,
       exam_name: examNameInput.value.trim() || undefined,
       source_ids: sourcePayload.sourceIds.length ? sourcePayload.sourceIds : undefined,
-      chapter_ids: sourcePayload.chapterIds.length ? sourcePayload.chapterIds : undefined,
+      chapter_ids: courseMode && sourcePayload.chapterIds.length ? sourcePayload.chapterIds : undefined,
       text: inlineParts.length ? inlineParts.join('\n\n') : undefined,
       sourceLabels: sourcePayload.labels,
     };
@@ -471,11 +563,6 @@ document.addEventListener('DOMContentLoaded', async function () {
       renderChapterScope();
       renderOutput(review);
       await window.RRApp.refreshShellStatus();
-      try {
-        if (!window.RRApp.isLoggedIn()) {
-          localStorage.setItem('rr_trial', 'used');
-        }
-      } catch (_) {}
       window.showToast('success', t('generate_done'));
     } catch (error) {
       window.showToast('error', error.message || t('generate_failed'));
@@ -496,6 +583,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   formatSelect.value = getStoredValue(FORMAT_KEY, 'review_sheet_pro');
   currentLength = getStoredValue(LENGTH_KEY, 'medium');
   sourceText.value = window.RRState.getDraftText();
+  syncModeUI();
   renderExamControls();
   renderSources();
   renderLengthButtons();
@@ -503,6 +591,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   renderDraftMeta('');
   renderOutput();
   await loadCourseStructure();
+  setGenerateBusy(false);
 
   examTypeSelect.addEventListener('change', function () {
     renderChapterScope();
@@ -539,6 +628,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     saveDraftSoon();
   });
   generateButton.addEventListener('click', generateReview);
+  generateTopButton.addEventListener('click', generateReview);
   copyButton.addEventListener('click', async function () {
     const review = window.RRState.getCurrentReview();
     if (!review || !review.text) {
@@ -576,6 +666,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     } catch (_) {}
   });
   document.addEventListener('rr:langchange', function () {
+    syncModeUI();
     renderExamControls();
     renderSources();
     renderChapterScope();

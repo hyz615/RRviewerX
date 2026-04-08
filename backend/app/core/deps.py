@@ -1,4 +1,4 @@
-from fastapi import Depends, Header, HTTPException, Response, Cookie
+from fastapi import Depends, Header
 from typing import Optional
 from datetime import datetime, timezone
 from .jwt import verify_jwt
@@ -77,26 +77,5 @@ def get_current_user(authorization: Optional[str] = Header(default=None, alias="
     return None
 
 
-def require_auth_or_trial(
-    response: Response,
-    user_id: Optional[str] = Depends(get_current_user),
-    rr_trial: Optional[str] = Cookie(default=None),
-):
-    # Allow if user logged in
-    if user_id is not None:
-        return {"user_id": user_id, "trial": False}
-    # Trial session: allow if no cookie (set active) or if cookie==active
-    if rr_trial is None:
-        response.set_cookie(
-            key="rr_trial",
-            value="active",
-            max_age=60 * 60 * 24 * 3,
-            httponly=False,
-            samesite="lax",
-            path="/",
-        )
-        return {"user_id": None, "trial": True}
-    if rr_trial == "active":
-        return {"user_id": None, "trial": True}
-    # Otherwise reject
-    raise HTTPException(status_code=401, detail="Login required (trial already used)")
+def require_auth_or_trial(user_id: Optional[int] = Depends(get_current_user)):
+    return {"user_id": user_id, "trial": False}

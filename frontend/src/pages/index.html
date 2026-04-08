@@ -33,7 +33,7 @@
   <button id="login-google" class="w-full btn btn-secondary px-4 py-2" data-i18n="login_use_google">使用 Google 登录</button>
   <!-- 隐藏微软登录入口：按需再开启，将 hidden 去掉即可 -->
   <button id="login-ms" class="w-full btn btn-secondary px-4 py-2 hidden" data-i18n="login_use_ms">使用 Microsoft 登录</button>
-  <button id="try-free" class="w-full btn btn-primary px-4 py-2" data-i18n="try_once">先试用一次</button>
+  <button id="try-free" class="w-full btn btn-primary px-4 py-2" data-i18n="try_once">直接进入上传/生成</button>
       </div>
       <div class="mt-6 border-t pt-4">
         <h3 class="text-sm font-semibold mb-2" data-i18n="email_login_title">邮箱登录</h3>
@@ -132,15 +132,8 @@
           };
         }
       })();
-      document.getElementById('try-free').onclick = async () => {
-        const r = await apiFetch("/auth/trial-status");
-        const j = await r.json();
-        if (j.trial_used) {
-          showToast('info', window.__i18n__ ? __i18n__.t('trial_used_alert') : '试用已用完，请登录');
-        } else {
-          localStorage.setItem('rr_trial', 'used');
-          location.href = 'workspace.html';
-        }
+      document.getElementById('try-free').onclick = function () {
+        location.href = 'workspace.html';
       };
       async function startOAuth(provider){
         const r = await apiFetch("/auth/login", {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({provider})});

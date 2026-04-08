@@ -1,6 +1,11 @@
 document.addEventListener('DOMContentLoaded', async function () {
   await window.RRApp.initPage('chat');
 
+  if (!window.RRApp.isLoggedIn()) {
+    location.href = 'index.html?login=1';
+    return;
+  }
+
   const chatLog = document.getElementById('chat-log');
   const chatEmpty = document.getElementById('chat-empty');
   const chatStatus = document.getElementById('chat-status');

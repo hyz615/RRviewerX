@@ -16,14 +16,14 @@
       })();
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="assets/styles.css?v=20260407" />
+    <link rel="stylesheet" href="assets/styles.css?v=20260408" />
     <script>window.I18N_NO_FLOAT = true;</script>
-    <script src="assets/i18n.js?v=20260407" defer></script>
+    <script src="assets/i18n.js?v=20260408" defer></script>
     <script src="assets/api.js" defer></script>
     <script src="assets/toast.js" defer></script>
-    <script src="assets/app-shell.js?v=20260407" defer></script>
+    <script src="assets/app-shell.js?v=20260408" defer></script>
     <script src="assets/app-state.js?v=20260407" defer></script>
-    <script src="assets/page-upload.js?v=20260407" defer></script>
+    <script src="assets/page-upload.js?v=20260408" defer></script>
   </head>
   <body class="page-surface">
     <div id="app-shell-top"></div>
@@ -84,6 +84,21 @@
         </section>
 
         <section class="panel">
+          <div id="upload-action-dock" class="flow-dock">
+            <div class="flow-dock__meta">
+              <span id="upload-summary-selected" class="flow-pill"></span>
+              <span id="upload-summary-draft" class="flow-pill"></span>
+              <span id="upload-summary-mode" class="flow-pill"></span>
+            </div>
+            <div id="upload-summary-text" class="flow-dock__copy"></div>
+            <div id="upload-summary-preview" class="flow-dock__preview hidden"></div>
+            <div class="toolbar-row" style="margin-top:0.85rem;">
+              <button id="btn-go-review" type="button" class="primary-btn" data-i18n="upload_use_for_review">去生成提要</button>
+              <button id="btn-clear-selected" type="button" class="ghost-btn" data-i18n="clear_selected">清空选择</button>
+            </div>
+          </div>
+
+          <div id="upload-server-section">
           <div class="panel-header">
             <div>
               <h2 class="panel-title" data-i18n="upload_server_library">已上传文件</h2>
@@ -96,6 +111,8 @@
           </div>
           <div id="server-list" class="source-list"></div>
           <div id="server-empty" class="empty-state" data-i18n="source_empty">暂无材料</div>
+
+          </div>
 
           <div class="panel-header" style="margin-top:1.25rem;">
             <div>
@@ -110,6 +127,7 @@
           <div class="panel-header" style="margin-top:1.25rem; margin-bottom:0.75rem;">
             <div>
               <h2 class="panel-title" data-i18n="selected_files">已选择</h2>
+              <p class="panel-copy" data-i18n="upload_selected_helper">已选中的材料会自动带到下一步。</p>
             </div>
           </div>
           <div id="selected-list" class="chip-list"></div>

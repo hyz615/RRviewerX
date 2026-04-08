@@ -21,27 +21,71 @@
     <script src="assets/i18n.js?v=20260407" defer></script>
     <script src="assets/api.js" defer></script>
     <script src="assets/toast.js" defer></script>
-    <script src="assets/app-shell.js?v=20260407" defer></script>
+    <script src="assets/app-shell.js?v=20260408" defer></script>
     <script src="assets/app-state.js?v=20260407" defer></script>
     <script src="assets/page-workspace.js?v=20260407" defer></script>
   </head>
   <body class="page-surface">
     <div id="app-shell-top"></div>
     <main class="page-wrap">
-      <section class="page-hero" style="padding-bottom:1.5rem;">
-        <div class="page-hero__copy">
-          <div class="page-kicker">RRviewerX</div>
-          <h1 class="page-title" data-i18n="my_courses">我的课程</h1>
-        </div>
-        <div class="page-hero__actions">
-          <button id="btn-new-course" type="button" class="primary-btn" data-i18n="new_course">＋ 新建课程</button>
+      <section id="workspace-guest" class="hidden">
+        <section class="page-hero" style="padding-bottom:1.5rem;">
+          <div class="page-hero__copy">
+            <div class="page-kicker">RRviewerX</div>
+            <h1 class="page-title" data-i18n="workspace_guest_title">直接上传并生成</h1>
+            <p class="page-subtitle" data-i18n="workspace_guest_subtitle">游客模式支持立即上传资料和生成提要；登录后再进入课程、历史和聊天。</p>
+          </div>
+          <div class="page-hero__actions">
+            <a href="upload.html" class="primary-btn" data-i18n="nav_upload">材料</a>
+            <a href="review.html" class="soft-btn" data-i18n="nav_review">提要</a>
+            <a href="index.html?login=1" class="ghost-btn" data-i18n="login_register">登录/注册</a>
+          </div>
+        </section>
+
+        <div class="page-grid page-grid--two">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title" data-i18n="workspace_guest_upload_title">上传材料</h2>
+                <p class="panel-copy" data-i18n="workspace_guest_upload_desc">文件、链接和手动文本都可直接加入本次生成会话。</p>
+              </div>
+            </div>
+            <div class="toolbar-row">
+              <a href="upload.html" class="primary-btn" data-i18n="upload_pick_files">选择并上传文件</a>
+              <a href="review.html" class="ghost-btn" data-i18n="generate_btn">生成</a>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title" data-i18n="workspace_guest_login_title">登录后开启课程流</h2>
+                <p class="panel-copy" data-i18n="workspace_guest_login_desc">课程、章节结构、聊天追问和历史记录需要登录后使用。</p>
+              </div>
+            </div>
+            <div class="toolbar-row">
+              <a href="index.html?login=1" class="primary-btn" data-i18n="login_register">登录/注册</a>
+            </div>
+          </section>
         </div>
       </section>
 
-      <div id="course-grid" class="course-grid"></div>
-      <div id="course-grid-empty" class="empty-state hidden" style="padding:2rem 0;" data-i18n="course_no_courses_yet">
-        还没有课程，点击「＋ 新建课程」开始。
-      </div>
+      <section id="workspace-member" class="hidden">
+        <section class="page-hero" style="padding-bottom:1.5rem;">
+          <div class="page-hero__copy">
+            <div class="page-kicker">RRviewerX</div>
+            <h1 class="page-title" data-i18n="my_courses">我的课程</h1>
+          </div>
+          <div class="page-hero__actions">
+            <button id="btn-new-course" type="button" class="primary-btn" data-i18n="new_course">＋ 新建课程</button>
+          </div>
+        </section>
+
+        <div id="course-grid" class="course-grid"></div>
+        <div id="course-grid-empty" class="empty-state hidden" style="padding:2rem 0;" data-i18n="course_no_courses_yet">
+          还没有课程，点击「＋ 新建课程」开始。
+        </div>
+      </section>
     </main>
 
     <!-- New course dialog -->

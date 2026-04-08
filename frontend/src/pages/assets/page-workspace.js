@@ -1,6 +1,8 @@
 document.addEventListener('DOMContentLoaded', async function () {
   await window.RRApp.initPage('workspace');
 
+  const guestSection = document.getElementById('workspace-guest');
+  const memberSection = document.getElementById('workspace-member');
   const courseGrid = document.getElementById('course-grid');
   const courseGridEmpty = document.getElementById('course-grid-empty');
   const newCourseBtn = document.getElementById('btn-new-course');
@@ -43,7 +45,9 @@ document.addEventListener('DOMContentLoaded', async function () {
       if (opt.value === '') return '';
       return '<option value="' + escapeHtml(opt.value) + '">' + escapeHtml(t(opt.labelKey)) + '</option>';
     }).filter(Boolean).join('');
-    if (current) select.value = current;
+    if (current) {
+      select.value = current;
+    }
   }
 
   function readAllBuckets() {
@@ -64,9 +68,8 @@ document.addEventListener('DOMContentLoaded', async function () {
     var lastReviewText = review && review.createdAt
       ? (t('course_last_review') + window.RRApp.formatRelativeDate(review.createdAt))
       : t('course_never_reviewed');
-    var bucketKey = encodeURIComponent(subjectCode) + '|' + encodeURIComponent(courseName);
     return [
-      '<article class="course-card" data-bucket-key="' + escapeHtml(bucketKey) + '">',
+      '<article class="course-card">',
       '  <div class="course-card__banner course-banner--' + cssKey + '">',
       '    <span class="course-badge course-badge--' + cssKey + '">' + escapeHtml(subjectLabel) + '</span>',
       '  </div>',
@@ -85,9 +88,8 @@ document.addEventListener('DOMContentLoaded', async function () {
   function renderGallery() {
     var buckets = readAllBuckets();
     var keys = Object.keys(buckets);
-
-    // Also include the active context if it's not in buckets yet
     var active = window.RRState.getSubjectContext();
+
     if (active && active.subjectCode) {
       var activeKey = encodeURIComponent(active.subjectCode) + '|' + encodeURIComponent(active.courseName || '');
       if (!buckets[activeKey]) {
@@ -107,12 +109,36 @@ document.addEventListener('DOMContentLoaded', async function () {
       var parts = key.split('|');
       var subjectCode = decodeURIComponent(parts[0] || '');
       var courseName = decodeURIComponent(parts[1] || '');
-      if (!subjectCode) return '';
+      if (!subjectCode) {
+        return '';
+      }
       return renderCourseCard(subjectCode, courseName, buckets[key] || {});
     }).filter(Boolean).join('');
   }
 
+  function renderWorkspace() {
+    var loggedIn = window.RRApp.isLoggedIn();
+    guestSection.classList.toggle('hidden', loggedIn);
+    memberSection.classList.toggle('hidden', !loggedIn);
+
+    if (!loggedIn) {
+      courseGrid.innerHTML = '';
+      courseGridEmpty.classList.add('hidden');
+      if (dialog.open) {
+        dialog.close();
+      }
+      return;
+    }
+
+    renderGallery();
+  }
+
   function openDialog() {
+    if (!window.RRApp.isLoggedIn()) {
+      location.href = 'index.html?login=1';
+      return;
+    }
+
     var active = window.RRState.getSubjectContext();
     populateSubjectSelect(dialogSubject, active.subjectCode || 'math');
     dialogCourseName.value = '';
@@ -121,46 +147,55 @@ document.addEventListener('DOMContentLoaded', async function () {
   }
 
   function closeDialog() {
-    dialog.close();
+    if (dialog.open) {
+      dialog.close();
+    }
   }
 
   function confirmNewCourse() {
+    if (!window.RRApp.isLoggedIn()) {
+      location.href = 'index.html?login=1';
+      return;
+    }
+
     var subjectCode = dialogSubject.value;
     var courseName = dialogCourseName.value.trim();
-    if (!subjectCode) return;
+    if (!subjectCode) {
+      return;
+    }
     window.RRState.setSubjectContext({ subjectCode: subjectCode, courseName: courseName });
     closeDialog();
     location.href = 'upload.html';
   }
 
-  // Event: enter course card
-  courseGrid.addEventListener('click', function (e) {
-    var btn = e.target.closest('.course-enter-btn');
-    if (!btn) return;
+  courseGrid.addEventListener('click', function (event) {
+    var btn = event.target.closest('.course-enter-btn');
+    if (!btn) {
+      return;
+    }
     var subjectCode = btn.dataset.subject;
     var courseName = btn.dataset.course;
     window.RRState.setSubjectContext({ subjectCode: subjectCode, courseName: courseName });
     location.href = 'upload.html';
   });
 
-  // Event: new course
   newCourseBtn.addEventListener('click', openDialog);
   dialogCancel.addEventListener('click', closeDialog);
   dialogConfirm.addEventListener('click', confirmNewCourse);
 
-  // Allow Enter in course name field to confirm
-  dialogCourseName.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') confirmNewCourse();
+  dialogCourseName.addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') {
+      confirmNewCourse();
+    }
   });
 
-  // Close dialog on backdrop click
-  dialog.addEventListener('click', function (e) {
-    if (e.target === dialog) closeDialog();
+  dialog.addEventListener('click', function (event) {
+    if (event.target === dialog) {
+      closeDialog();
+    }
   });
 
-  // Re-render on language change
-  window.addEventListener('rr:langchange', renderGallery);
+  document.addEventListener('rr:langchange', renderWorkspace);
 
-  // Initial render
-  renderGallery();
+  renderWorkspace();
 });

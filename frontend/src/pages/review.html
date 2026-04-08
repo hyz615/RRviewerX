@@ -16,11 +16,11 @@
       })();
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="assets/styles.css?v=20260407" />
+    <link rel="stylesheet" href="assets/styles.css?v=20260408" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" />
     <script>window.I18N_NO_FLOAT = true;</script>
-    <script src="assets/i18n.js?v=20260407" defer></script>
+    <script src="assets/i18n.js?v=20260408" defer></script>
     <script src="assets/api.js" defer></script>
     <script src="assets/toast.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
@@ -28,9 +28,9 @@
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/contrib/auto-render.min.js" defer></script>
-    <script src="assets/app-shell.js?v=20260407" defer></script>
+    <script src="assets/app-shell.js?v=20260408" defer></script>
     <script src="assets/app-state.js?v=20260407" defer></script>
-    <script src="assets/page-review.js?v=20260407" defer></script>
+    <script src="assets/page-review.js?v=20260408" defer></script>
   </head>
   <body class="page-surface">
     <div id="app-shell-top"></div>
@@ -39,12 +39,25 @@
 
       <div class="page-grid page-grid--review">
         <section class="panel">
+          <div id="review-action-dock" class="flow-dock">
+            <div class="flow-dock__meta">
+              <span id="review-summary-selected" class="flow-pill"></span>
+              <span id="review-summary-draft" class="flow-pill"></span>
+              <span id="review-summary-mode" class="flow-pill"></span>
+            </div>
+            <div id="review-summary-text" class="flow-dock__copy"></div>
+            <div id="review-summary-preview" class="flow-dock__preview hidden"></div>
+            <div class="toolbar-row" style="margin-top:0.85rem;">
+              <a id="review-back-upload" href="upload.html" class="soft-btn" data-i18n="review_back_materials">返回改材料</a>
+              <button id="btn-generate-top" type="button" class="primary-btn" data-i18n="generate_btn">生成</button>
+            </div>
+          </div>
+
           <div class="panel-header">
             <div>
               <h2 class="panel-title" data-i18n="review_sources_title">本次材料</h2>
               <p class="panel-copy" data-i18n="review_no_sources">尚未选择文件，将仅使用下方文本生成。</p>
             </div>
-            <a href="upload.html" class="ghost-btn" data-i18n="nav_upload">材料</a>
           </div>
 
           <div class="context-grid">
@@ -58,14 +71,16 @@
             </label>
           </div>
 
-          <div class="panel-header" style="margin-top:1rem; margin-bottom:0.75rem;">
-            <div>
-              <h2 class="panel-title" data-i18n="review_chapter_scope_title">章节范围</h2>
-              <p id="review-chapter-note" class="panel-copy" data-i18n="review_chapter_scope_copy">按单元分组选章节，生成时只会带入这些章节已映射的材料。</p>
+          <div id="review-chapter-section">
+            <div class="panel-header" style="margin-top:1rem; margin-bottom:0.75rem;">
+              <div>
+                <h2 class="panel-title" data-i18n="review_chapter_scope_title">章节范围</h2>
+                <p id="review-chapter-note" class="panel-copy" data-i18n="review_chapter_scope_copy">按单元分组选章节，生成时只会带入这些章节已映射的材料。</p>
+              </div>
             </div>
+            <div id="review-chapter-groups"></div>
+            <div id="review-chapter-empty" class="empty-state hidden" data-i18n="review_chapter_scope_empty">当前课程还没有配置章节结构。</div>
           </div>
-          <div id="review-chapter-groups"></div>
-          <div id="review-chapter-empty" class="empty-state hidden" data-i18n="review_chapter_scope_empty">当前课程还没有配置章节结构。</div>
 
           <div id="review-sources" class="chip-list"></div>
           <div id="review-sources-empty" class="empty-state mt-4" data-i18n="review_no_sources">尚未选择文件，将仅使用下方文本生成。</div>
@@ -112,8 +127,8 @@
               <p id="review-meta" class="panel-copy"></p>
             </div>
             <div class="toolbar-row">
-              <a href="chat.html" class="ghost-btn" data-i18n="review_open_chat">去对话</a>
-              <a href="history.html" class="ghost-btn" data-i18n="review_open_history">打开历史</a>
+              <a id="review-open-chat" href="chat.html" class="ghost-btn" data-i18n="review_open_chat">去对话</a>
+              <a id="review-open-history" href="history.html" class="ghost-btn" data-i18n="review_open_history">打开历史</a>
             </div>
           </div>
           <div id="review-empty" class="empty-state" data-i18n="review_empty_state">生成后，结构化结果会显示在这里。</div>
