@@ -4,7 +4,7 @@ set -euo pipefail
 
 MODE="local"
 BACKEND_PORT=8000
-FRONTEND_PORT=8080
+FRONTEND_PORT=80
 WORKERS=0
 NO_BROWSER=0
 SKIP_DEPS=0
@@ -34,8 +34,8 @@ Usage:
 Examples:
   ./start.sh
   ./start.sh --mode docker
-  ./start.sh --backend-port 8001 --frontend-port 9090 --workers 2 --skip-deps
-  ./start.sh -Mode local -BackendPort 8001 -FrontendPort 9090 -Workers 2 -SkipDeps
+  ./start.sh --backend-port 8001 --frontend-port 8080 --workers 2 --skip-deps
+  ./start.sh -Mode local -BackendPort 8001 -FrontendPort 8080 -Workers 2 -SkipDeps
 EOF
 }
 
@@ -142,6 +142,25 @@ install_deps() {
   if [[ ! -f "$req" ]]; then
     write_warn "$req not found, skipping dependency install"
     return
+  fi
+
+  # Ensure tesseract-ocr is installed (needed by pytesseract)
+  if ! test_cmd tesseract; then
+    write_step "Installing tesseract-ocr ..."
+    if test_cmd apt-get; then
+      sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends tesseract-ocr
+    elif test_cmd dnf; then
+      sudo dnf install -y tesseract
+    elif test_cmd yum; then
+      sudo yum install -y tesseract
+    else
+      write_warn "Cannot auto-install tesseract-ocr. Please install it manually."
+    fi
+    if test_cmd tesseract; then
+      write_ok "tesseract-ocr installed"
+    fi
+  else
+    write_ok "tesseract-ocr found"
   fi
 
   write_step "Installing backend dependencies ..."
@@ -253,8 +272,8 @@ start_docker() {
     exit 1
   fi
 
-  if (( BACKEND_PORT != 8000 || FRONTEND_PORT != 8080 )); then
-    write_warn "Custom ports are ignored in docker mode. docker-compose.yml exposes 8000/8080."
+  if (( BACKEND_PORT != 8000 || FRONTEND_PORT != 80 )); then
+    write_warn "Custom ports are ignored in docker mode. docker-compose.yml exposes 8000/80."
   fi
 
   write_step "Building and starting containers (docker compose) ..."
@@ -356,7 +375,7 @@ case "$MODE" in
   docker)
     start_docker
     printf '\n'
-    write_ok "Frontend -> http://localhost:8080   Backend -> http://localhost:8000"
+    write_ok "Frontend -> http://localhost   Backend -> http://localhost:8000"
     printf '\n'
     ;;
 esac

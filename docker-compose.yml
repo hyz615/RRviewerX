@@ -9,7 +9,7 @@ services:
     environment:
       - APP_ENV=prod
       - SECRET_KEY=${SECRET_KEY:-change-me}
-      - ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
+      - ALLOWED_ORIGINS=http://localhost,http://127.0.0.1
       - OPENAI_API_KEY
       - DEEPSEEK_API_KEY
       - LLM_PROVIDER=${LLM_PROVIDER:-mock}
@@ -24,6 +24,6 @@ services:
       dockerfile: Dockerfile
     container_name: rrviewer-frontend
     ports:
-      - "8080:80"
+      - "80:80"
     depends_on:
       - backend
