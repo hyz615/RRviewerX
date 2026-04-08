@@ -43,7 +43,7 @@
           <button type="button" id="btn-toggle-pw" class="absolute right-2 top-2 text-sm text-slate-500 hover:text-slate-800" tabindex="-1" aria-label="Toggle password visibility">👁</button>
         </div>
         <div class="flex items-center gap-2 mb-3">
-          <img id="captcha-img" src="" alt="captcha" class="h-10 w-28 border rounded bg-white object-contain" />
+          <img id="captcha-img" src="" alt="captcha" loading="eager" class="h-10 w-28 border rounded bg-white object-contain" />
           <button id="btn-refresh-captcha" type="button" class="text-xs underline" data-i18n="captcha_refresh">刷新验证码</button>
           <input id="captcha-code" type="text" maxlength="8" class="flex-1 border rounded px-2 py-2 text-sm" data-i18n-placeholder="captcha_placeholder" placeholder="输入验证码" aria-label="Captcha code" aria-required="true" />
         </div>
@@ -160,15 +160,68 @@
 
     // Captcha handling
     let __captchaId = '';
-  async function loadCaptcha(){
+    let __captchaRequestSeq = 0;
+
+    function loadCaptchaImage(img, src){
+      return new Promise((resolve, reject) => {
+        if (!img){ resolve(); return; }
+
+        const cleanup = () => {
+          img.removeEventListener('load', onLoad);
+          img.removeEventListener('error', onError);
+        };
+        const onLoad = () => { cleanup(); resolve(); };
+        const onError = () => { cleanup(); reject(new Error('captcha_image_error')); };
+
+        img.addEventListener('load', onLoad, { once: true });
+        img.addEventListener('error', onError, { once: true });
+        img.src = src;
+
+        if (img.complete && img.naturalWidth > 0) {
+          cleanup();
+          resolve();
+        }
+      });
+    }
+
+    async function loadCaptcha(options){
+      const config = Object.assign({retry: true, silent: false}, options || {});
+      const requestSeq = ++__captchaRequestSeq;
+      const img = document.getElementById('captcha-img');
+      const refreshBtn = document.getElementById('btn-refresh-captcha');
+      const codeInput = document.getElementById('captcha-code');
+
+      if (refreshBtn) refreshBtn.disabled = true;
       try{
-    const r = await apiFetch("/auth/captcha");
+        const r = await apiFetch('/auth/captcha?ts=' + Date.now(), {
+          cache: 'no-store',
+          headers: {'Accept': 'application/json'},
+        });
+        if (!r.ok) throw new Error('captcha_request_failed');
         const j = await r.json();
-        if (j.ok){ __captchaId = j.id; const img = document.getElementById('captcha-img'); if(img) img.src = j.image; }
-      }catch(e){ /* ignore */ }
+        if (!j.ok || !j.id || !j.image) throw new Error('captcha_payload_invalid');
+        if (requestSeq !== __captchaRequestSeq) return;
+        __captchaId = j.id;
+        if (codeInput) codeInput.value = '';
+        await loadCaptchaImage(img, j.image);
+      }catch(e){
+        if (config.retry) {
+          return loadCaptcha({retry: false, silent: config.silent});
+        }
+        __captchaId = '';
+        if (img) img.removeAttribute('src');
+        if (!config.silent && window.showToast) {
+          showToast('error', window.__i18n__ ? __i18n__.t('captcha_load_failed') : '验证码加载失败，请重试。');
+        }
+      }finally{
+        if (refreshBtn) refreshBtn.disabled = false;
+      }
     }
     document.getElementById('btn-refresh-captcha').onclick = ()=> loadCaptcha();
-    loadCaptcha();
+    loadCaptcha({silent: true});
+    window.addEventListener('load', function(){
+      if (!__captchaId) loadCaptcha({silent: true});
+    }, {once: true});
 
   async function authLocal(path){
         const email = document.getElementById('email').value.trim();

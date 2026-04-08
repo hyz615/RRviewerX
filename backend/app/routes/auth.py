@@ -453,4 +453,11 @@ def _verify_captcha(cid: str | None, code: str | None)->bool:
 @router.get('/captcha')
 def get_captcha():
     cid, data_url = _new_captcha()
-    return {"ok": True, "id": cid, "image": data_url}
+    return JSONResponse(
+        {"ok": True, "id": cid, "image": data_url},
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, private, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )

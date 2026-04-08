@@ -38,3 +38,13 @@ def test_oauth_callback_sets_cookie_and_redirect(monkeypatch):
     # In TestClient, cookies from redirect response are not automatically exposed; check headers
     set_cookie = r.headers.get('set-cookie', '')
     assert 'rr_token=' in set_cookie
+
+
+def test_captcha_response_disables_caching():
+    client = get_client()
+    r = client.get('/auth/captcha')
+    assert r.status_code == 200
+    payload = r.json()
+    assert payload.get('ok') is True
+    assert str(payload.get('image') or '').startswith('data:image/svg+xml;base64,')
+    assert 'no-store' in (r.headers.get('cache-control', '').lower())

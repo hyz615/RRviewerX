@@ -29,6 +29,11 @@ class UnitInput(BaseModel):
     chapters: list[ChapterInput] = Field(default_factory=list)
 
 
+class EnsureCourseRequest(BaseModel):
+    subject_code: str | None = None
+    course_name: str
+
+
 class CourseStructureRequest(BaseModel):
     subject_code: str | None = None
     course_name: str
@@ -70,6 +75,30 @@ def list_courses(
             "created_at": c.created_at.isoformat() if c.created_at else None,
         })
     return {"ok": True, "courses": result}
+
+
+@router.post("/ensure")
+def ensure_course(
+    payload: EnsureCourseRequest,
+    session: Session = Depends(get_session),
+    uid: int | None = Depends(get_current_user),
+):
+    user_id = _require_user(uid)
+    normalized_course_name = clean_optional_text(payload.course_name)
+    if not normalized_course_name:
+        raise HTTPException(status_code=400, detail="course_name is required")
+
+    course = resolve_course(
+        session,
+        user_id,
+        normalize_subject_code(payload.subject_code),
+        normalized_course_name,
+        create_if_missing=True,
+    )
+    if course is None:
+        raise HTTPException(status_code=400, detail="Failed to resolve course")
+
+    return {"ok": True, "course": serialize_course_structure(session, course)}
 
 
 @router.get("")

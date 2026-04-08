@@ -44,6 +44,28 @@ class FileChapterUpdate(BaseModel):
     chapter_ids: list[int] = Field(default_factory=list)
 
 
+def _ensure_course_context(
+    session: Session,
+    user_id: int | None,
+    subject_code: str | None,
+    course_name: str | None,
+) -> tuple[str | None, str | None]:
+    normalized_course_name = _clean_optional_text(course_name)
+    if user_id is None or not normalized_course_name:
+        return subject_code, normalized_course_name
+
+    course = resolve_course(
+        session,
+        user_id,
+        subject_code,
+        normalized_course_name,
+        create_if_missing=True,
+    )
+    if course is None:
+        return subject_code, normalized_course_name
+    return course.subject_code, course.course_name
+
+
 def _apply_auto_chapter_mappings(
     session: Session,
     user_id: int | None,
@@ -112,6 +134,12 @@ async def upload_file(
         if ctx.get("user_id") is None:
             fm = None
         else:
+            subject_code, course_name = _ensure_course_context(
+                session,
+                ctx.get("user_id"),
+                subject_code,
+                course_name,
+            )
             # persist metadata and store raw file
             fm = FileMeta(
                 filename=file.filename,
@@ -198,6 +226,12 @@ async def upload_file(
                 if ctx.get("user_id") is None:
                     fm = None
                 else:
+                    subject_code, course_name = _ensure_course_context(
+                        session,
+                        ctx.get("user_id"),
+                        subject_code,
+                        course_name,
+                    )
                     fm = FileMeta(
                         filename=fname,
                         content_type=ctype or None,

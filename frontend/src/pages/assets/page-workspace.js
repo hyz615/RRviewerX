@@ -139,6 +139,17 @@ document.addEventListener('DOMContentLoaded', async function () {
     } catch (_) {}
   }
 
+  async function ensureCourseExists(subjectCode, courseName) {
+    return window.RRApp.fetchJSON('/course-structure/ensure', {
+      method: 'POST',
+      headers: window.RRApp.authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        subject_code: subjectCode || undefined,
+        course_name: courseName,
+      }),
+    });
+  }
+
   function renderWorkspace() {
     var loggedIn = window.RRApp.isLoggedIn();
     guestSection.classList.toggle('hidden', loggedIn);
@@ -180,7 +191,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
   }
 
-  function confirmNewCourse() {
+  async function confirmNewCourse() {
     if (!window.RRApp.isLoggedIn()) {
       location.href = 'index.html?login=1';
       return;
@@ -191,9 +202,29 @@ document.addEventListener('DOMContentLoaded', async function () {
     if (!subjectCode) {
       return;
     }
-    window.RRState.setSubjectContext({ subjectCode: subjectCode, courseName: courseName });
-    closeDialog();
-    location.href = 'upload.html';
+    if (!courseName) {
+      window.showToast('info', t('new_course_need_name'));
+      dialogCourseName.focus();
+      return;
+    }
+
+    var confirmLabel = t('new_course_confirm');
+    dialogConfirm.disabled = true;
+    dialogCancel.disabled = true;
+    dialogConfirm.textContent = t('common_loading');
+    try {
+      await ensureCourseExists(subjectCode, courseName);
+      await syncCoursesFromServer();
+      window.RRState.setSubjectContext({ subjectCode: subjectCode, courseName: courseName });
+      closeDialog();
+      location.href = 'upload.html';
+    } catch (error) {
+      window.showToast('error', error.message || t('operation_failed'));
+    } finally {
+      dialogConfirm.disabled = false;
+      dialogCancel.disabled = false;
+      dialogConfirm.textContent = confirmLabel;
+    }
   }
 
   courseGrid.addEventListener('click', function (event) {
@@ -209,7 +240,9 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   newCourseBtn.addEventListener('click', openDialog);
   dialogCancel.addEventListener('click', closeDialog);
-  dialogConfirm.addEventListener('click', confirmNewCourse);
+  dialogConfirm.addEventListener('click', function () {
+    confirmNewCourse();
+  });
 
   dialogCourseName.addEventListener('keydown', function (event) {
     if (event.key === 'Enter') {

@@ -102,6 +102,32 @@ def test_course_structure_roundtrip_and_manual_mapping():
         assert [match["chapter_id"] for match in listed_item["chapter_matches"]] == [derivatives_id]
 
 
+def test_ensure_course_persists_empty_course_in_listing():
+    headers = _auth_headers()
+    course_name = "Chemistry-" + uuid4().hex[:8]
+
+    with TestClient(app) as client:
+        ensure = client.post(
+            "/course-structure/ensure",
+            headers=headers,
+            json={"subject_code": "chemistry", "course_name": course_name},
+        )
+        assert ensure.status_code == 200
+        course = ensure.json()["course"]
+        assert course["course_name"] == course_name
+        assert course["has_structure"] is False
+        assert course["chapter_count"] == 0
+
+        listing = client.get("/course-structure/list", headers=headers)
+        assert listing.status_code == 200
+        assert any(
+            item["course_name"] == course_name
+            and item["subject_code"] == "chemistry"
+            and item["source_count"] == 0
+            for item in listing.json()["courses"]
+        )
+
+
 def test_generate_with_chapter_scope_persists_history_snapshot():
     headers = _auth_headers()
     course_name = "Linear-Algebra-" + uuid4().hex[:8]
