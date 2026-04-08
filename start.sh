@@ -247,7 +247,10 @@ start_frontend() {
   local pages_dir="frontend/src/pages"
   local frontend_pid
 
-  assert_port_free "$port" "frontend"
+  # When nginx is available we will reconfigure & reload it, so skip the port check.
+  if ! test_cmd nginx; then
+    assert_port_free "$port" "frontend"
+  fi
 
   if [[ ! -d "$pages_dir" ]]; then
     write_err "Frontend directory missing: $pages_dir"
