@@ -11,3 +11,4 @@ pytest_cache/
 .idea/
 .vscode/
 rrviewer.db
+*.db

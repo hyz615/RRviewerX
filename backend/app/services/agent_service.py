@@ -43,13 +43,58 @@ def _prompt_flashcards_en(text: str) -> str:
         "Material:\n" + text + "\n\n"
         "Example:\nFront: Term A\nBack: Definition/Properties A\n\nFront: Term B\nBack: Definition/Properties B\n"
     )
+from dataclasses import dataclass
 from typing import Literal, Dict, Any, List, Optional
+import json
 import re
+import threading
 from ..core.config import settings
 
 
 Format = Literal["qa", "flashcards", "review_sheet_pro"]
 Length = Literal["short", "medium", "long"]
+
+
+@dataclass
+class _APIConfig:
+    name: str
+    provider: str
+    model: str
+    api_key: str | None
+    base_url: str | None
+
+
+@dataclass
+class _APIEntry:
+    config: _APIConfig
+    client: Any
+
+
+def _clean_setting_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    return cleaned or None
+
+
+def _looks_like_vision_model(model: str | None) -> bool:
+    name = (model or "").strip().lower()
+    if not name:
+        return False
+    vision_tokens = (
+        "gpt-4o",
+        "gpt-4.1",
+        "vision",
+        "claude-3",
+        "claude-3.5",
+        "claude-3.7",
+        "gemini",
+        "glm-4v",
+        "qwen-vl",
+        "minicpm-v",
+        "llava",
+    )
+    return any(token in name for token in vision_tokens)
 
 
 class LLMProvider:
@@ -59,48 +104,289 @@ class LLMProvider:
         self.openai_key = settings.OPENAI_API_KEY
         self.deepseek_key = settings.DEEPSEEK_API_KEY
         self.base_url = getattr(settings, "LLM_BASE_URL", None)
+        self._rr_lock = threading.Lock()
+        self._rr_index = {"llm": 0, "vlm": 0}
+        self._entries = {
+            "llm": self._build_entries("llm"),
+            "vlm": self._build_entries("vlm"),
+        }
+        if not self._entries["vlm"]:
+            self._entries["vlm"] = [
+                entry for entry in self._entries["llm"]
+                if _looks_like_vision_model(entry.config.model)
+            ]
+        if self._entries["llm"]:
+            first = self._entries["llm"][0]
+            self.model = first.config.model
+            self.provider = first.config.provider
+            self._client = first.client
+        else:
+            self._client = None
 
-        self._client = None
-        if self.provider == "openai" and (self.openai_key or self.base_url):
-            try:
-                from openai import OpenAI
+    def _normalize_config(
+        self,
+        *,
+        name: str,
+        provider: str,
+        model: str | None,
+        api_key: str | None,
+        base_url: str | None,
+    ) -> _APIConfig | None:
+        provider_name = (provider or "openai").strip().lower()
+        model_name = _clean_setting_text(model)
+        resolved_key = _clean_setting_text(api_key)
+        resolved_base = _clean_setting_text(base_url)
+        if provider_name == "deepseek":
+            resolved_base = resolved_base or "https://api.deepseek.com"
+            if not model_name or model_name == "gpt-4o-mini":
+                model_name = "deepseek-chat"
+        elif not model_name:
+            model_name = "gpt-4o-mini"
+        if provider_name == "mock" or (not resolved_key and not resolved_base):
+            return None
+        return _APIConfig(
+            name=name,
+            provider=provider_name,
+            model=model_name,
+            api_key=resolved_key,
+            base_url=resolved_base,
+        )
 
-                # Support custom base_url for self-hosted OpenAI-compatible endpoints
-                if self.base_url:
-                    self._client = OpenAI(api_key=self.openai_key or "sk-placeholder", base_url=self.base_url)
-                else:
-                    self._client = OpenAI(api_key=self.openai_key)
-            except Exception:
-                self._client = None
-        elif self.provider == "deepseek" and (self.deepseek_key or self.base_url):
-            try:
-                from openai import OpenAI
-
-                # DeepSeek is OpenAI-compatible; set base_url
-                base = self.base_url or "https://api.deepseek.com"
-                self._client = OpenAI(api_key=self.deepseek_key or "sk-placeholder", base_url=base)
-                if self.model == "gpt-4o-mini":
-                    self.model = "deepseek-chat"
-            except Exception:
-                self._client = None
-
-    def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2) -> str:
-        if not self._client:
-            # mock
-            return messages[-1]["content"][:512]
-        try:
-            resp = self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=temperature,
+    def _legacy_config(self, purpose: str) -> _APIConfig | None:
+        if purpose == "vlm":
+            provider = _clean_setting_text(getattr(settings, "VLM_PROVIDER", None)) or "openai"
+            return self._normalize_config(
+                name="vlm-legacy",
+                provider=provider,
+                model=getattr(settings, "VLM_MODEL", None),
+                api_key=getattr(settings, "VLM_API_KEY", None),
+                base_url=getattr(settings, "VLM_BASE_URL", None),
             )
-            return resp.choices[0].message.content or ""
+        api_key = self.openai_key if self.provider == "openai" else self.deepseek_key
+        return self._normalize_config(
+            name="llm-legacy",
+            provider=self.provider,
+            model=self.model,
+            api_key=api_key,
+            base_url=self.base_url,
+        )
+
+    def _configs_from_json(self, raw: str | None, purpose: str) -> List[_APIConfig]:
+        if not raw:
+            return []
+        try:
+            data = json.loads(raw)
         except Exception:
-            # fallback mock on error
-            return messages[-1]["content"][:512]
+            return []
+        if isinstance(data, dict):
+            data = [data]
+        if not isinstance(data, list):
+            return []
+        configs: List[_APIConfig] = []
+        for index, item in enumerate(data, start=1):
+            if not isinstance(item, dict):
+                continue
+            enabled = item.get("enabled", True)
+            if isinstance(enabled, str):
+                enabled = enabled.strip().lower() not in {"0", "false", "no", "off"}
+            if not enabled:
+                continue
+            provider = _clean_setting_text(item.get("provider")) or ("openai" if purpose == "vlm" else self.provider)
+            config = self._normalize_config(
+                name=_clean_setting_text(item.get("name")) or f"{purpose}-{index}",
+                provider=provider,
+                model=item.get("model"),
+                api_key=item.get("api_key"),
+                base_url=item.get("base_url"),
+            )
+            if config is not None:
+                configs.append(config)
+        return configs
+
+    def _build_client(self, config: _APIConfig) -> Any | None:
+        try:
+            from openai import OpenAI
+        except Exception:
+            return None
+        try:
+            kwargs: Dict[str, Any] = {"api_key": config.api_key or "sk-placeholder"}
+            if config.base_url:
+                kwargs["base_url"] = config.base_url
+            return OpenAI(**kwargs)
+        except Exception:
+            return None
+
+    def _build_entries(self, purpose: str) -> List[_APIEntry]:
+        raw = getattr(settings, "LLM_API_CONFIGS", None) if purpose == "llm" else getattr(settings, "VLM_API_CONFIGS", None)
+        configs = self._configs_from_json(raw, purpose)
+        if not configs:
+            legacy = self._legacy_config(purpose)
+            if legacy is not None:
+                configs = [legacy]
+        entries: List[_APIEntry] = []
+        for config in configs:
+            client = self._build_client(config)
+            if client is not None:
+                entries.append(_APIEntry(config=config, client=client))
+        return entries
+
+    def has_client(self, purpose: str = "llm") -> bool:
+        return bool(self._entries.get(purpose))
+
+    def _flatten_content(self, content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: List[str] = []
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "text":
+                    text = _clean_setting_text(item.get("text"))
+                    if text:
+                        parts.append(text)
+                elif item.get("type") == "image_url":
+                    parts.append("[image]")
+            return "\n".join(parts)
+        return str(content or "")
+
+    def _mock_reply(self, messages: List[Dict[str, Any]]) -> str:
+        for message in reversed(messages or []):
+            text = self._flatten_content(message.get("content"))
+            if text:
+                return text[:512]
+        return ""
+
+    def _next_entries(self, purpose: str) -> List[_APIEntry]:
+        entries = list(self._entries.get(purpose) or [])
+        if not entries:
+            return []
+        with self._rr_lock:
+            start = self._rr_index[purpose] % len(entries)
+            self._rr_index[purpose] = (self._rr_index[purpose] + 1) % len(entries)
+        return entries[start:] + entries[:start]
+
+    def _extract_content(self, response: Any) -> str:
+        try:
+            content = response.choices[0].message.content
+        except Exception:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: List[str] = []
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                text = _clean_setting_text(item.get("text"))
+                if text:
+                    parts.append(text)
+            return "\n".join(parts)
+        return str(content or "")
+
+    def chat(
+        self,
+        messages: List[Dict[str, Any]],
+        temperature: float = 0.2,
+        *,
+        purpose: str = "llm",
+        max_tokens: int | None = None,
+    ) -> str:
+        entries = self._next_entries(purpose)
+        if not entries:
+            return self._mock_reply(messages)
+        for entry in entries:
+            try:
+                payload: Dict[str, Any] = {
+                    "model": entry.config.model,
+                    "messages": messages,
+                    "temperature": temperature,
+                }
+                if max_tokens is not None:
+                    payload["max_tokens"] = max_tokens
+                resp = entry.client.chat.completions.create(**payload)
+                content = self._extract_content(resp).strip()
+                if content:
+                    return content
+            except Exception:
+                continue
+        return self._mock_reply(messages)
 
 
 llm = LLMProvider()
+
+
+def summarize_visual_material(
+    filename: str,
+    image_payloads: List[Dict[str, str]],
+    *,
+    extracted_text: str = "",
+    lang: str = "zh",
+) -> str:
+    if not image_payloads or not llm.has_client("vlm"):
+        return ""
+    is_en = (lang or "").lower().startswith("en")
+    limited = image_payloads[: max(1, getattr(settings, "VLM_MAX_IMAGES", 6))]
+    labels = [str(item.get("label") or "").strip() for item in limited if str(item.get("label") or "").strip()]
+    text_hint = (extracted_text or "").strip()
+    if len(text_hint) > 1600:
+        text_hint = text_hint[:1600]
+    if is_en:
+        system = (
+            "You are a vision pre-processor for downstream study-assistant workflows. "
+            "Describe only what is visible in the uploaded pages or images. "
+            "Extract headings, formulas, diagrams, tables, question stems, answer options, and key annotations. "
+            "When uncertain, mark the detail as [unclear] instead of inventing it. "
+            "Return plain text that can be passed to another LLM."
+        )
+        user_prompt = (
+            f"Filename: {filename}\n"
+            f"Image order: {', '.join(labels) if labels else 'in order of appearance'}\n"
+            "Summarize the educational content in these images/pages for a downstream text model.\n"
+            "Prefer concrete facts over general descriptions, and keep the summary structured but concise."
+        )
+        if text_hint:
+            user_prompt += "\n\nExisting extracted text (may be incomplete):\n" + text_hint
+    else:
+        user_prompt = (
+            f"文件名：{filename}\n"
+            f"图片顺序：{', '.join(labels) if labels else '按出现顺序'}\n"
+            "请把这些图片或扫描页里的学习内容总结成可直接交给下游文本大模型的纯文本摘要。\n"
+            "优先提取标题、知识点、公式、图表结论、题干、选项、表格字段、步骤与批注；不要编造看不清的内容，看不清请标注 [不清晰]。"
+        )
+        if text_hint:
+            user_prompt += "\n\n已有文字抽取（可能不完整）：\n" + text_hint
+        system = (
+            "你是学习资料的视觉预处理器。只描述图中真实可见的信息，"
+            "把图片内容整理成结构化纯文本，供下游文本大模型继续生成。"
+        )
+
+    content: List[Dict[str, Any]] = [{"type": "text", "text": user_prompt}]
+    for item in limited:
+        url = _clean_setting_text(item.get("url"))
+        if not url:
+            continue
+        image_part: Dict[str, Any] = {"type": "image_url", "image_url": {"url": url}}
+        detail = _clean_setting_text(item.get("detail"))
+        if detail:
+            image_part["image_url"]["detail"] = detail
+        content.append(image_part)
+    if len(content) <= 1:
+        return ""
+    try:
+        out = llm.chat(
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": content},
+            ],
+            temperature=0.1,
+            purpose="vlm",
+            max_tokens=1200,
+        )
+        limit = max(400, int(getattr(settings, "VLM_SUMMARY_MAX_CHARS", 3000)))
+        return (out or "").strip()[:limit]
+    except Exception:
+        return ""
 
 
 def _prompt_condense(text: str, target_chars: int, is_en: bool) -> str:
@@ -122,7 +408,7 @@ def _prompt_condense(text: str, target_chars: int, is_en: bool) -> str:
 
 def _condense_text(text: str, target_chars: int, is_en: bool) -> str:
     # Fallback when no real LLM client: hard truncate
-    if not getattr(llm, "_client", None):
+    if not llm.has_client("llm"):
         return text[:target_chars]
     system = (
         "You are an expert editor who distills content without losing key information."
@@ -578,6 +864,8 @@ class _LangChainRunner:
         self._use_openai_chat = False
         self._model = settings.LLM_MODEL
         self._client = None
+        if getattr(settings, "LLM_API_CONFIGS", None):
+            return
         try:
             # Prefer langchain if installed
             from langchain.prompts import ChatPromptTemplate  # noqa: F401

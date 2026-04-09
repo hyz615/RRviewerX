@@ -18,6 +18,12 @@ class Settings:
     LLM_PROVIDER: str
     LLM_MODEL: str
     LLM_BASE_URL: str | None
+    LLM_API_CONFIGS: str | None
+    VLM_PROVIDER: str | None
+    VLM_MODEL: str | None
+    VLM_BASE_URL: str | None
+    VLM_API_KEY: str | None
+    VLM_API_CONFIGS: str | None
 
     GOOGLE_CLIENT_ID: str | None
     GOOGLE_CLIENT_SECRET: str | None
@@ -42,6 +48,9 @@ class Settings:
     EMAIL_FROM: str | None
     FRONTEND_BASE: str | None
     OAUTH_REDIRECT_BASE: str | None
+    VLM_MAX_IMAGES: int
+    VLM_PDF_PAGE_LIMIT: int
+    VLM_SUMMARY_MAX_CHARS: int
 
     def __init__(self) -> None:
         # Load backend/.env first (if python-dotenv available), then default .env
@@ -66,6 +75,12 @@ class Settings:
         self.LLM_PROVIDER = os.getenv("LLM_PROVIDER", "mock")
         self.LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
         self.LLM_BASE_URL = os.getenv("LLM_BASE_URL")
+        self.LLM_API_CONFIGS = os.getenv("LLM_API_CONFIGS")
+        self.VLM_PROVIDER = os.getenv("VLM_PROVIDER")
+        self.VLM_MODEL = os.getenv("VLM_MODEL")
+        self.VLM_BASE_URL = os.getenv("VLM_BASE_URL")
+        self.VLM_API_KEY = os.getenv("VLM_API_KEY")
+        self.VLM_API_CONFIGS = os.getenv("VLM_API_CONFIGS")
 
         self.GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
         self.GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
@@ -101,6 +116,18 @@ class Settings:
         # Explicit base URL for OAuth redirect URIs (e.g. https://myapp.com)
         # When behind a reverse proxy, request.url_for() may produce wrong scheme/host.
         self.OAUTH_REDIRECT_BASE = os.getenv("OAUTH_REDIRECT_BASE")
+        try:
+            self.VLM_MAX_IMAGES = int(os.getenv("VLM_MAX_IMAGES", "6"))
+        except Exception:
+            self.VLM_MAX_IMAGES = 6
+        try:
+            self.VLM_PDF_PAGE_LIMIT = int(os.getenv("VLM_PDF_PAGE_LIMIT", "4"))
+        except Exception:
+            self.VLM_PDF_PAGE_LIMIT = 4
+        try:
+            self.VLM_SUMMARY_MAX_CHARS = int(os.getenv("VLM_SUMMARY_MAX_CHARS", "3000"))
+        except Exception:
+            self.VLM_SUMMARY_MAX_CHARS = 3000
 
 
 settings = Settings()
