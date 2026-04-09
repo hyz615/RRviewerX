@@ -8,6 +8,7 @@ services:
     container_name: rrviewer-backend
     environment:
       - APP_ENV=prod
+      - UVICORN_WORKERS=${UVICORN_WORKERS:-2}
       - SECRET_KEY=${SECRET_KEY:-change-me}
       - ALLOWED_ORIGINS=http://localhost,http://127.0.0.1
       - OPENAI_API_KEY

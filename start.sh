@@ -29,7 +29,7 @@ usage() {
   cat <<'EOF'
 Usage:
   ./start.sh [--mode local|docker] [--backend-port 8000] [--frontend-port 8080]
-             [--workers 0] [--no-browser] [--skip-deps]
+             [--workers 0(auto)] [--no-browser] [--skip-deps]
 
 Examples:
   ./start.sh
@@ -61,9 +61,86 @@ assert_workers_value() {
   local workers="$1"
 
   if ! is_integer "$workers" || (( workers < 0 || workers > 32 )); then
-    write_err "Workers must be an integer between 0 and 32."
+    write_err "Workers must be an integer between 0 and 32 (0 = auto)."
     exit 1
   fi
+}
+
+read_backend_env_value() {
+  local key="$1"
+  local env_file="backend/.env"
+  local line=""
+  local value=""
+
+  if [[ ! -f "$env_file" ]]; then
+    return 0
+  fi
+
+  line="$(grep -E "^${key}=" "$env_file" | tail -n 1 || true)"
+  if [[ -z "$line" ]]; then
+    return 0
+  fi
+
+  value="${line#*=}"
+  value="${value%$'\r'}"
+  value="${value%\"}"
+  value="${value#\"}"
+  printf '%s\n' "$value"
+}
+
+get_app_env() {
+  local app_env="${APP_ENV:-}"
+
+  if [[ -z "$app_env" ]]; then
+    app_env="$(read_backend_env_value APP_ENV)"
+  fi
+
+  if [[ -z "$app_env" ]]; then
+    app_env="dev"
+  fi
+
+  printf '%s\n' "$(printf '%s' "$app_env" | tr '[:upper:]' '[:lower:]')"
+}
+
+detect_cpu_count() {
+  local cpu_count=""
+
+  if test_cmd nproc; then
+    cpu_count="$(nproc 2>/dev/null || true)"
+  elif test_cmd getconf; then
+    cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+  fi
+
+  if ! is_integer "$cpu_count" || (( cpu_count < 1 )); then
+    cpu_count=2
+  fi
+
+  printf '%s\n' "$cpu_count"
+}
+
+resolve_backend_workers() {
+  local requested_workers="$1"
+  local app_env=""
+  local cpu_count=0
+
+  if (( requested_workers > 0 )); then
+    printf '%s\n' "$requested_workers"
+    return 0
+  fi
+
+  app_env="$(get_app_env)"
+  if [[ "$app_env" == "prod" || "$app_env" == "production" ]]; then
+    cpu_count="$(detect_cpu_count)"
+    if (( cpu_count < 2 )); then
+      cpu_count=2
+    elif (( cpu_count > 4 )); then
+      cpu_count=4
+    fi
+    printf '%s\n' "$cpu_count"
+    return 0
+  fi
+
+  printf '1\n'
 }
 
 test_port_busy() {
@@ -215,19 +292,19 @@ start_backend() {
   local fe_port="$2"
   local workers="$3"
   local allowed_origins
+  local app_env
+  local effective_workers
   local -a args
   local backend_pid
 
   assert_port_free "$port" "backend"
   mkdir -p .run
   allowed_origins="$(build_allowed_origins "$fe_port")"
-  args=( -m uvicorn app.main:app --host 0.0.0.0 --port "$port" --app-dir backend )
+  app_env="$(get_app_env)"
+  effective_workers="$(resolve_backend_workers "$workers")"
+  args=( -m uvicorn app.main:app --host 0.0.0.0 --port "$port" --app-dir backend --workers "$effective_workers" )
 
-  if (( workers > 0 )); then
-    args+=( --workers "$workers" )
-  fi
-
-  write_step "Starting backend -> http://localhost:$port"
+  write_step "Starting backend -> http://localhost:$port (workers=$effective_workers, env=$app_env)"
   ALLOWED_ORIGINS="$allowed_origins" nohup "$VENV_PYTHON" "${args[@]}" > .run/backend.log 2>&1 &
   backend_pid=$!
   echo "$backend_pid" > .run/backend.pid
@@ -340,8 +417,15 @@ start_docker() {
     write_warn "Custom ports are ignored in docker mode. docker-compose.yml exposes 8000/80."
   fi
 
-  write_step "Building and starting containers (docker compose) ..."
-  docker compose up --build -d
+  local docker_workers="${UVICORN_WORKERS:-}"
+  if (( WORKERS > 0 )); then
+    docker_workers="$WORKERS"
+  elif [[ -z "$docker_workers" ]]; then
+    docker_workers="2"
+  fi
+
+  write_step "Building and starting containers (docker compose, backend workers $docker_workers) ..."
+  UVICORN_WORKERS="$docker_workers" docker compose up --build -d
   write_ok "Docker services started"
 }
 

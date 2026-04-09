@@ -22,6 +22,12 @@ FastAPI backend for RRviewer (Review Sheet Maker) by Yizhou Han.
 2. Run `docker compose up --build`
 3. Frontend at http://localhost:8080 , Backend at http://localhost:8000
 
+Production docker startup defaults to `UVICORN_WORKERS=2`. Override it when needed, for example:
+
+```bash
+UVICORN_WORKERS=4 docker compose up --build
+```
+
 ## Endpoints
 - `POST /auth/login` (provider: google|microsoft|anonymous)
 - `GET /auth/trial-status`

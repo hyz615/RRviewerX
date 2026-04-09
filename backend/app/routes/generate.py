@@ -1,3 +1,5 @@
+import asyncio
+import threading
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -267,6 +269,45 @@ def _sse_event(name: str, data: str) -> bytes:
     return f"event: {name}\ndata: {data}\n\n".encode("utf-8")
 
 
+async def _iter_review_pro_events(model_input: str, lang: str):
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[tuple[str, object]] = asyncio.Queue()
+    stop_event = threading.Event()
+
+    def publish(kind: str, payload: object) -> None:
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, (kind, payload))
+        except RuntimeError:
+            # The request was already torn down; drop late events from the worker thread.
+            pass
+
+    def worker() -> None:
+        try:
+            for event in generate_review_pro_agent_iter(model_input, lang):
+                if stop_event.is_set():
+                    break
+                publish("event", event)
+        except Exception as exc:
+            publish("error", exc)
+        finally:
+            publish("end", None)
+
+    thread = threading.Thread(target=worker, name="rr-review-pro-stream", daemon=True)
+    thread.start()
+
+    try:
+        while True:
+            kind, payload = await queue.get()
+            if kind == "event":
+                yield payload
+                continue
+            if kind == "error":
+                raise payload  # type: ignore[misc]
+            break
+    finally:
+        stop_event.set()
+
+
 @router.post("/stream")
 async def generate_stream(payload: GenerateRequest, _ctx=Depends(require_auth_or_trial), session: Session = Depends(get_session)):
     # stream only for review_sheet_pro
@@ -321,7 +362,7 @@ async def generate_stream(payload: GenerateRequest, _ctx=Depends(require_auth_or
         # Progress events
         try:
             buf_text = ""
-            for ev in generate_review_pro_agent_iter(model_input, lang):
+            async for ev in _iter_review_pro_events(model_input, lang):
                 name = ev.get("name")
                 if name == "done":
                     buf_text = ev.get("text", "")

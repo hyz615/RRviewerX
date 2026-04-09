@@ -12,7 +12,7 @@
   前端端口，默认 8080。
 
 .PARAMETER Workers
-  Uvicorn worker 数。0 = 默认单进程。
+    Uvicorn worker 数。0 = 自动按环境选择；生产环境自动 2-4 个，开发环境 1 个。
 
 .PARAMETER NoBrowser
   启用时不自动打开浏览器。
@@ -64,6 +64,56 @@ function Write-Banner {
 # ── Utility functions ───────────────────────────────────────────────
 function Test-Cmd ([string]$Name) {
     [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Get-EnvFileValue ([string]$Key) {
+    $envFile = 'backend/.env'
+    if (-not (Test-Path $envFile)) {
+        return $null
+    }
+
+    $pattern = '^\s*' + [regex]::Escape($Key) + '=(.*)$'
+    $line = Get-Content $envFile | Where-Object { $_ -match $pattern } | Select-Object -Last 1
+    if (-not $line) {
+        return $null
+    }
+
+    if ($line -match $pattern) {
+        $value = $Matches[1].Trim()
+        if ($value.Length -ge 2 -and $value.StartsWith('"') -and $value.EndsWith('"')) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+        return $value
+    }
+
+    return $null
+}
+
+function Get-AppEnv {
+    $appEnv = $env:APP_ENV
+    if ([string]::IsNullOrWhiteSpace($appEnv)) {
+        $appEnv = Get-EnvFileValue 'APP_ENV'
+    }
+    if ([string]::IsNullOrWhiteSpace($appEnv)) {
+        $appEnv = 'dev'
+    }
+    return $appEnv.ToLowerInvariant()
+}
+
+function Resolve-BackendWorkers ([int]$RequestedWorkers) {
+    if ($RequestedWorkers -gt 0) {
+        return $RequestedWorkers
+    }
+
+    $appEnv = Get-AppEnv
+    if ($appEnv -in @('prod', 'production')) {
+        $cpuCount = [Environment]::ProcessorCount
+        if ($cpuCount -lt 2) { return 2 }
+        if ($cpuCount -gt 4) { return 4 }
+        return $cpuCount
+    }
+
+    return 1
 }
 
 function Test-PortBusy ([int]$Port) {
@@ -141,13 +191,14 @@ function Start-Backend ([int]$Port, [int]$FEPort, [int]$W) {
     } catch { }
     $env:ALLOWED_ORIGINS = $origins -join ','
 
+    $appEnv = Get-AppEnv
+    $effectiveWorkers = Resolve-BackendWorkers $W
     $pyExe = Resolve-Path '.venv/Scripts/python.exe'
     $uvi   = @('-m', 'uvicorn', 'app.main:app',
                '--host', '0.0.0.0', '--port', "$Port",
-               '--app-dir', 'backend')
-    if ($W -gt 0) { $uvi += '--workers', "$W" }
+               '--app-dir', 'backend', '--workers', "$effectiveWorkers")
 
-    Write-Step "Starting backend -> http://localhost:$Port"
+    Write-Step "Starting backend -> http://localhost:$Port (workers=$effectiveWorkers, env=$appEnv)"
     Start-Process -FilePath $pyExe -ArgumentList $uvi -WorkingDirectory $PWD -WindowStyle Normal
     Write-OK "Backend PID launched (port $Port)"
 }
@@ -174,13 +225,34 @@ function Start-Frontend ([int]$Port) {
 }
 
 # ── Docker mode ─────────────────────────────────────────────────────
-function Start-Docker {
+function Start-Docker ([int]$WorkerCount) {
     if (-not (Test-Cmd 'docker')) {
         throw 'Docker is not installed or not on PATH.'
     }
-    Write-Step 'Building & starting containers (docker compose) ...'
-    docker compose up --build -d
-    Write-OK 'Docker services started'
+
+    $previousWorkers = $null
+    $hadWorkers = Test-Path Env:UVICORN_WORKERS
+    if ($hadWorkers) {
+        $previousWorkers = $env:UVICORN_WORKERS
+    }
+
+    try {
+        if ($WorkerCount -gt 0) {
+            $env:UVICORN_WORKERS = "$WorkerCount"
+        } elseif (-not $hadWorkers) {
+            $env:UVICORN_WORKERS = '2'
+        }
+
+        Write-Step "Building & starting containers (docker compose, backend workers=$($env:UVICORN_WORKERS)) ..."
+        docker compose up --build -d
+        Write-OK 'Docker services started'
+    } finally {
+        if ($hadWorkers) {
+            $env:UVICORN_WORKERS = $previousWorkers
+        } else {
+            Remove-Item Env:UVICORN_WORKERS -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 # ══════════════════════════════════════════════════════════════════════
@@ -208,7 +280,7 @@ switch ($Mode) {
         }
     }
     'docker' {
-        Start-Docker
+        Start-Docker -WorkerCount $Workers
         Write-Host ''
         Write-OK "Frontend -> http://localhost:$FrontendPort   Backend -> http://localhost:$BackendPort"
         Write-Host ''

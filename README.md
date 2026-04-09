@@ -37,6 +37,12 @@ chmod +x ./start.sh
 ./start.sh --mode local
 ```
 
+如果 `backend/.env` 里的 `APP_ENV=production`，直接运行 `./start.sh` 会自动按机器核数启用 2 到 4 个后端 worker；20 人左右同时访问建议至少：
+
+```bash
+./start.sh --workers 4 --skip-deps
+```
+
 如需跳过依赖安装：
 
 ```bash
@@ -63,6 +69,16 @@ powershell -ExecutionPolicy Bypass -File .\start.ps1 -Mode docker
 
 ```powershell
 docker compose up --build
+```
+
+生产容器默认以 2 个 Uvicorn worker 启动后端；可通过 `UVICORN_WORKERS` 覆盖，或直接使用：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start.ps1 -Mode docker -Workers 4
+```
+
+```bash
+./start.sh --mode docker --workers 4
 ```
 
 前端 http://localhost:8080，后端 http://localhost:8000。
