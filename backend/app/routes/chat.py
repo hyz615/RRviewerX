@@ -7,6 +7,7 @@ from ..core.db import get_session
 from ..core.deps import get_current_user
 from ..models.models import ReviewSheet
 from ..services.agent_service import answer_questions
+from ..services.course_service import load_json_list
 from starlette.concurrency import run_in_threadpool
 from ..services.embedding_service import embed_texts
 import json
@@ -15,39 +16,139 @@ import json
 router = APIRouter()
 
 
+class ChatHistoryMessage(BaseModel):
+    role: str
+    content: str
+
+
 class ChatRequest(BaseModel):
     review_sheet_id: str | None = None
     question: str | None = None
     questions: List[str] | None = None
     stream: bool | None = False
+    history: List[ChatHistoryMessage] | None = None
+
+
+def _load_review_sheet(review_sheet_id: str | None, session: Session, uid: int | None) -> ReviewSheet | None:
+    if not review_sheet_id or uid is None:
+        return None
+    try:
+        rid = int(review_sheet_id)
+    except Exception:
+        return None
+    rs = session.get(ReviewSheet, rid)
+    if rs and rs.user_id == uid:
+        return rs
+    return None
+
+
+def _extract_review_text(raw_content: str | None, limit: int = 4000) -> str:
+    raw = str(raw_content or "").strip()
+    if not raw:
+        return ""
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return raw[:limit]
+
+    if isinstance(data, dict):
+        for key in ("text", "content", "review", "review_text"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:limit]
+        items = data.get("items")
+        if isinstance(items, list):
+            lines = [str(item).strip() for item in items if str(item).strip()]
+            if lines:
+                return "\n".join(lines)[:limit]
+    if isinstance(data, list):
+        lines: List[str] = []
+        for item in data:
+            if isinstance(item, dict):
+                text_value = item.get("text") or item.get("content")
+                if isinstance(text_value, str) and text_value.strip():
+                    lines.append(text_value.strip())
+                    continue
+            rendered = str(item).strip()
+            if rendered:
+                lines.append(rendered)
+        if lines:
+            return "\n".join(lines)[:limit]
+    if isinstance(data, str):
+        return data[:limit]
+    return raw[:limit]
+
+
+def _build_study_context(review_sheet: ReviewSheet | None) -> str:
+    if review_sheet is None:
+        return ""
+
+    lines: List[str] = []
+    if review_sheet is not None:
+        if review_sheet.subject_code:
+            lines.append(f"科目: {review_sheet.subject_code}")
+        if review_sheet.course_name:
+            lines.append(f"课程: {review_sheet.course_name}")
+        if review_sheet.exam_type:
+            lines.append(f"考试类型: {review_sheet.exam_type}")
+        if review_sheet.exam_name:
+            lines.append(f"考试: {review_sheet.exam_name}")
+        chapter_labels = [
+            str(label).strip()
+            for label in load_json_list(review_sheet.selected_chapter_labels)
+            if str(label).strip()
+        ]
+        if chapter_labels:
+            preview = "，".join(chapter_labels[:6])
+            if len(chapter_labels) > 6:
+                preview += f" 等 {len(chapter_labels)} 个章节"
+            lines.append(f"章节范围: {preview}")
+
+    return "\n".join(lines).strip()
+
+
+def _normalize_history(history: List[ChatHistoryMessage] | None, limit: int = 8) -> List[dict[str, str]]:
+    normalized: List[dict[str, str]] = []
+    for item in history or []:
+        role = str(item.role or "").strip().lower()
+        if role not in {"user", "assistant"}:
+            continue
+        content = str(item.content or "").strip()
+        if not content:
+            continue
+        normalized.append({"role": role, "content": content[:2000]})
+    return normalized[-limit:]
 
 
 @router.post("")
 async def chat(payload: ChatRequest, session: Session = Depends(get_session), uid: int | None = Depends(get_current_user)):
     if uid is None:
         raise HTTPException(status_code=401, detail="Login required")
-    # Load context if review_sheet_id provided
-    def load_context(limit: int = 4000) -> str:
-        if payload.review_sheet_id:
-            rs = session.get(ReviewSheet, int(payload.review_sheet_id))
-            if rs and rs.content and rs.user_id == uid:
-                try:
-                    data = json.loads(rs.content)
-                    return json.dumps(data, ensure_ascii=False)[:limit]
-                except Exception:
-                    return rs.content[:limit]
-        return ""
+    review_sheet = _load_review_sheet(payload.review_sheet_id, session, uid)
+    review_text = _extract_review_text(review_sheet.content if review_sheet else "")
+    study_context = _build_study_context(review_sheet)
+    history = _normalize_history(payload.history)
 
     if payload.questions and len(payload.questions) > 0:
-        # no usage enforcement for chat
-        context = load_context()
-        answers = await run_in_threadpool(answer_questions, context, payload.questions)
+        answers = await run_in_threadpool(
+            answer_questions,
+            review_text,
+            payload.questions,
+            "zh",
+            history,
+            study_context,
+        )
         return {"ok": True, "text": "\n\n".join(answers)}
 
     if payload.question and payload.question.strip():
-        # no usage enforcement for chat
-        context = load_context()
-        single = await run_in_threadpool(answer_questions, context, [payload.question.strip()])
+        single = await run_in_threadpool(
+            answer_questions,
+            review_text,
+            [payload.question.strip()],
+            "zh",
+            history,
+            study_context,
+        )
         return {"ok": True, "text": (single[0] if single else "")}
 
     return {"ok": False, "error": "No question(s) provided"}
@@ -61,20 +162,14 @@ async def chat_stream(payload: ChatRequest, session: Session = Depends(get_sessi
         raise HTTPException(status_code=401, detail="Login required")
     if not payload.question:
         return Response(content="missing question", status_code=400)
-    # load review context
-    context_text = ""
-    if payload.review_sheet_id:
-        rs = session.get(ReviewSheet, int(payload.review_sheet_id))
-        if rs and rs.content and rs.user_id == uid:
-            try:
-                data = json.loads(rs.content)
-                context_text = json.dumps(data, ensure_ascii=False)
-            except Exception:
-                context_text = rs.content
-    # slice context into chunks for embeddings
+    review_sheet = _load_review_sheet(payload.review_sheet_id, session, uid)
+    review_text = _extract_review_text(review_sheet.content if review_sheet else "", limit=12000)
+    study_context = _build_study_context(review_sheet)
+    history = _normalize_history(payload.history)
+
     chunks: List[str] = []
     buf: List[str] = []
-    for line in context_text.splitlines():
+    for line in review_text.splitlines():
         if not line.strip():
             if buf:
                 chunks.append("\n".join(buf).strip())
@@ -117,11 +212,15 @@ async def chat_stream(payload: ChatRequest, session: Session = Depends(get_sessi
     async def event_gen():
         # send refs event first
         yield f"event: refs\ndata: {json.dumps(refs, ensure_ascii=False)}\n\n"
-        # streaming answer (mock: send in 40-char chunks)
         question = payload.question.strip()
-        system_msg = "你是严谨、简洁的学习助教。基于引用片段回答。"
-        # call llm.chat once (no true token stream available with current wrapper)
-        answer_full = (await run_in_threadpool(answer_questions, context_text[:4000], [question]))[0]
+        answer_full = (await run_in_threadpool(
+            answer_questions,
+            review_text[:4000],
+            [question],
+            "zh",
+            history,
+            study_context,
+        ))[0]
         if not answer_full:
             answer_full = "(no answer)"
         chunk_size = 50

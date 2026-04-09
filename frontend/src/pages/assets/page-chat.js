@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   const questionInput = document.getElementById('chat-question');
   const sendButton = document.getElementById('btn-send');
   const clearButton = document.getElementById('btn-clear-chat');
+  const MAX_HISTORY_MESSAGES = 8;
 
   let currentReview = window.RRState.getCurrentReview();
   let messages = [];
@@ -156,13 +157,25 @@ document.addEventListener('DOMContentLoaded', async function () {
     renderMessages();
   }
 
-  async function askFallback(question) {
+  function getRequestHistory() {
+    return messages.filter(function (message) {
+      return message && (message.role === 'user' || message.role === 'assistant') && message.content;
+    }).slice(-MAX_HISTORY_MESSAGES).map(function (message) {
+      return {
+        role: message.role,
+        content: String(message.content || '').slice(0, 2000),
+      };
+    });
+  }
+
+  async function askFallback(question, history) {
     const data = await window.RRApp.fetchJSON('/chat', {
       method: 'POST',
       headers: window.RRApp.authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         question: question,
         review_sheet_id: currentReview.id,
+        history: history,
       }),
     });
     return { text: data.text || '', refs: [] };
@@ -179,6 +192,8 @@ document.addEventListener('DOMContentLoaded', async function () {
       questionInput.focus();
       return;
     }
+
+    const requestHistory = getRequestHistory();
 
     addMessage({ role: 'user', content: question });
     questionInput.value = '';
@@ -202,6 +217,7 @@ document.addEventListener('DOMContentLoaded', async function () {
       const stream = window.RRApp.streamSSE('/chat/stream', {
         question: question,
         review_sheet_id: currentReview.id,
+        history: requestHistory,
       }, {
         refs: function (raw) {
           try {
@@ -229,13 +245,13 @@ document.addEventListener('DOMContentLoaded', async function () {
         throw new Error(failure);
       }
       if (!answer) {
-        const fallback = await askFallback(question);
+        const fallback = await askFallback(question, requestHistory);
         answer = fallback.text;
         refs = fallback.refs;
       }
     } catch (streamError) {
       try {
-        const fallback = await askFallback(question);
+        const fallback = await askFallback(question, requestHistory);
         answer = fallback.text;
         refs = fallback.refs;
       } catch (fallbackError) {

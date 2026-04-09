@@ -222,9 +222,6 @@
         '      </div>',
         '    </a>',
         '    <div class="shell-status" aria-live="polite">',
-        '      <span id="ai-dot" class="status-dot warn"></span>',
-        '      <span id="ai-text">AI</span>',
-        '      <span class="shell-status__divider"></span>',
         '      <span class="shell-status__usage">',
         '        <span id="usage-label" data-i18n="monthly_usage">本月用量</span>',
         '        <strong id="usage-val">—</strong>',
@@ -326,33 +323,11 @@
   }
 
   function updateShellStatus() {
-    const aiDot = document.getElementById('ai-dot');
-    const aiText = document.getElementById('ai-text');
     const usageLabel = document.getElementById('usage-label');
     const usageValue = document.getElementById('usage-val');
     const vipBadge = document.getElementById('vip-badge-top');
     const loginLink = document.getElementById('link-login');
     const logoutLink = document.getElementById('link-logout');
-
-    if (shellState.ai && aiDot && aiText) {
-      const provider = String(shellState.ai.provider || 'mock').toLowerCase();
-      const providerLabel = provider === 'openai'
-        ? t('ai_provider_openai')
-        : provider === 'deepseek'
-          ? t('ai_provider_deepseek')
-          : t('ai_provider_mock');
-
-      if (shellState.ai.ready && provider !== 'mock') {
-        aiDot.className = 'status-dot ok';
-        aiText.textContent = t('ai_status_connected') + ' · ' + providerLabel;
-      } else if (provider === 'mock') {
-        aiDot.className = 'status-dot warn';
-        aiText.textContent = t('ai_status_mock');
-      } else {
-        aiDot.className = 'status-dot err';
-        aiText.textContent = t('ai_status_missing');
-      }
-    }
 
     if (usageLabel && usageValue && vipBadge) {
       usageLabel.textContent = t('shell_mode_label');

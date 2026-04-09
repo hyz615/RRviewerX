@@ -418,29 +418,74 @@ def generate_review(text: str, fmt: Format, lang: str = "zh", length: Length = "
     raise ValueError("Unknown format")
 
 
-def answer_questions(context: str, questions: List[str], lang: str = "zh") -> List[str]:
+def _normalize_chat_history(history: Optional[List[Dict[str, str]]], limit: int = 8) -> List[Dict[str, str]]:
+    normalized: List[Dict[str, str]] = []
+    for item in history or []:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        if role not in {"user", "assistant"}:
+            continue
+        content = str(item.get("content") or "").strip()
+        if not content:
+            continue
+        normalized.append({"role": role, "content": content[:2000]})
+    return normalized[-limit:]
+
+
+def answer_questions(
+    context: str,
+    questions: List[str],
+    lang: str = "zh",
+    history: Optional[List[Dict[str, str]]] = None,
+    study_context: str = "",
+) -> List[str]:
     if not questions:
         return []
-    # Join questions into one call for efficiency; split answers by line
+
     joined = "\n".join(f"Q{idx+1}: {q}" for idx, q in enumerate(questions))
     is_en = (lang or "").lower().startswith("en")
-    prompt = (
-        "Answer the questions based on the given review sheet. If not clear, say so briefly.\n\n"
-        f"Review sheet:\n{context[:4000]}\n\nQuestions:\n{joined}\n\nPlease answer with lines A1:/A2:/..."
-        if is_en else
-        "基于给定的复习提要回答问题，若无明确答案请简洁说明。\n\n"
-        f"复习提要:\n{context[:4000]}\n\n问题:\n{joined}\n\n请按 A1:/A2:... 格式作答。"
-    )
     system_prompt = (
-        "You are a rigorous and concise study assistant."
+        "You are a rigorous and concise study assistant in a multi-turn conversation. "
+        "Use the study context, current review sheet, and recent dialogue to resolve short follow-up questions. "
+        "Do not jump to unrelated subjects or examples. If the context is insufficient, say what is missing instead of guessing."
         if is_en else
-        "你是严谨、简洁的学习助教。"
+        "你是严谨、简洁的学习助教，正在进行多轮对话。"
+        " 你要结合学习上下文、当前复习提要和最近对话来解析简短追问。"
+        " 不要跳到无关学科、无关题目或另一个例子。"
+        " 若上下文不足，请直接说明缺少什么，不要硬猜。"
     )
-    ans = llm.chat([
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": prompt},
-    ])
-    # Split by lines A1:/A2: pattern
+
+    messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+    background_blocks: List[str] = []
+    if study_context.strip():
+        background_blocks.append(
+            ("Study context:\n" if is_en else "学习上下文:\n") + study_context.strip()[:1800]
+        )
+    if context.strip():
+        background_blocks.append(
+            ("Current review sheet:\n" if is_en else "当前复习提要:\n") + context.strip()[:4000]
+        )
+    if background_blocks:
+        messages.append({"role": "system", "content": "\n\n".join(background_blocks)})
+
+    messages.extend(_normalize_chat_history(history))
+    prompt = (
+        "Answer the latest question(s) using the provided context and recent dialogue.\n"
+        "- If the user writes a short follow-up like 'answer?', 'why?', or 'next step?', resolve the referent from the recent conversation first.\n"
+        "- Stay on the current topic.\n"
+        "- If the answer cannot be confirmed from context, say so briefly.\n\n"
+        f"Questions:\n{joined}\n\nPlease answer with lines A1:/A2:/..."
+        if is_en else
+        "请结合上述上下文和最近对话回答最新问题。\n"
+        "- 如果用户这一轮是“答案是”“为什么”“下一步呢”这类简短追问，先根据最近对话解析指代对象。\n"
+        "- 保持当前题目与主题，不要跑题。\n"
+        "- 如果无法从现有上下文确认答案，请简洁说明。\n\n"
+        f"问题:\n{joined}\n\n请按 A1:/A2:... 格式作答。"
+    )
+    messages.append({"role": "user", "content": prompt})
+    ans = llm.chat(messages)
+
     lines = [l.strip() for l in ans.splitlines() if l.strip()]
     mapped: Dict[int, str] = {}
     for ln in lines:
