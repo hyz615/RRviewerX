@@ -221,13 +221,6 @@
         '        <span class="shell-brand__tag" data-i18n="brand_tag">RUR1 INNOVATION & Skyru AI</span>',
         '      </div>',
         '    </a>',
-        '    <div class="shell-status" aria-live="polite">',
-        '      <span class="shell-status__usage">',
-        '        <span id="usage-label" data-i18n="monthly_usage">本月用量</span>',
-        '        <strong id="usage-val">—</strong>',
-        '      </span>',
-        '      <span id="vip-badge-top" class="shell-vip-badge hidden"></span>',
-        '    </div>',
         '    <div class="shell-utility">',
         '      <a href="support.html" class="shell-inline-link" data-i18n="menu_support">工单</a>',
         '      <button id="btn-dark" class="shell-icon-btn" type="button" title="Theme" aria-label="Toggle theme">🌙</button>',
@@ -323,18 +316,8 @@
   }
 
   function updateShellStatus() {
-    const usageLabel = document.getElementById('usage-label');
-    const usageValue = document.getElementById('usage-val');
-    const vipBadge = document.getElementById('vip-badge-top');
     const loginLink = document.getElementById('link-login');
     const logoutLink = document.getElementById('link-logout');
-
-    if (usageLabel && usageValue && vipBadge) {
-      usageLabel.textContent = t('shell_mode_label');
-      usageValue.textContent = isLoggedIn() ? t('shell_mode_member') : t('shell_mode_guest');
-      vipBadge.classList.add('hidden');
-      vipBadge.textContent = '';
-    }
 
     if (loginLink && logoutLink) {
       if (isLoggedIn()) {
