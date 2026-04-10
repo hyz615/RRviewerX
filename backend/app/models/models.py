@@ -46,6 +46,7 @@ class FileMeta(SQLModel, table=True):
     stored_path: Optional[str] = None
     subject_code: Optional[str] = Field(default=None, index=True)
     course_name: Optional[str] = Field(default=None, index=True)
+    source_role: str = Field(default="material", index=True)
     created_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -58,6 +59,7 @@ class Course(SQLModel, table=True):
     user_id: int = Field(index=True)
     subject_code: Optional[str] = Field(default=None, index=True)
     course_name: str = Field(index=True)
+    textbook_file_id: Optional[int] = Field(default=None, index=True, foreign_key="filemeta.id")
     created_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -100,6 +102,20 @@ class FileChapterMapping(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class CourseTextbookChapter(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("textbook_file_id", "chapter_id", name="ux_coursetextbookchapter_file_chapter"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    course_id: int = Field(index=True, foreign_key="course.id")
+    textbook_file_id: int = Field(index=True, foreign_key="filemeta.id")
+    chapter_id: int = Field(index=True, foreign_key="coursechapter.id")
+    content: str
+    order_index: int = Field(default=0, index=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
 class ReviewSheet(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: Optional[int] = Field(default=None, index=True)
@@ -112,6 +128,8 @@ class ReviewSheet(SQLModel, table=True):
     exam_name: Optional[str] = None
     selected_chapter_ids: Optional[str] = None
     selected_chapter_labels: Optional[str] = None
+    generation_mode: Optional[str] = None
+    textbook_file_id: Optional[int] = Field(default=None, index=True, foreign_key="filemeta.id")
     is_favorite: bool = Field(default=False)
     created_at: datetime = Field(default_factory=_utcnow)
 
@@ -133,10 +151,25 @@ class UsageCounter(SQLModel, table=True):
 
 
 class MonthlyUsage(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("user_key", "year", "month", name="ux_monthlyusage_user_period"),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     user_key: str = Field(index=True)
     year: int = Field(index=True)
     month: int = Field(index=True)
+    count: int = 0
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class SiteCounter(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("key", name="ux_sitecounter_key"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    key: str = Field(index=True)
     count: int = 0
     updated_at: datetime = Field(default_factory=_utcnow)
 

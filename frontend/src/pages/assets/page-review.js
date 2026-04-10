@@ -34,6 +34,9 @@ document.addEventListener('DOMContentLoaded', async function () {
   const chapterNote = document.getElementById('review-chapter-note');
   const chapterGroups = document.getElementById('review-chapter-groups');
   const chapterEmpty = document.getElementById('review-chapter-empty');
+  const generationModeNote = document.getElementById('review-generation-mode-note');
+  const generationModeGroup = document.getElementById('review-generation-mode-group');
+  const textbookMeta = document.getElementById('review-textbook-meta');
   const reviewOpenChat = document.getElementById('review-open-chat');
   const reviewOpenHistory = document.getElementById('review-open-history');
   const reviewActionDock = document.getElementById('review-action-dock');
@@ -45,6 +48,7 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   let draftTimer = 0;
   let currentLength = 'medium';
+  let currentGenerationMode = window.RRState.getGenerationMode();
   let canGenerate = false;
   let generateBusy = false;
 
@@ -87,6 +91,44 @@ document.addEventListener('DOMContentLoaded', async function () {
     return new Intl.NumberFormat().format(Number(value || 0));
   }
 
+  function formatBytes(value) {
+    const size = Number(value || 0);
+    if (!size) {
+      return '0 B';
+    }
+    if (size >= 1024 * 1024) {
+      return (size / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+    if (size >= 1024) {
+      return Math.round(size / 1024) + ' KB';
+    }
+    return size + ' B';
+  }
+
+  function formatGenerationMode(mode) {
+    if (mode === 'textbook') {
+      return t('review_generation_mode_textbook');
+    }
+    if (mode === 'combined') {
+      return t('review_generation_mode_combined');
+    }
+    return t('review_generation_mode_materials');
+  }
+
+  function getActiveTextbook() {
+    const structure = window.RRState.getCourseStructure();
+    return structure && structure.textbook ? structure.textbook : null;
+  }
+
+  function getTextbookPreview() {
+    const textbook = getActiveTextbook();
+    if (!textbook) {
+      return '';
+    }
+    const chapterSummary = getSelectedChapterSummary();
+    return [textbook.filename, chapterSummary !== t('review_chapter_scope_all') ? chapterSummary : ''].filter(Boolean).join(' · ');
+  }
+
   function getRenderableSources() {
     const selected = window.RRState.getSelectedSources();
     const currentReview = window.RRState.getCurrentReview();
@@ -120,8 +162,11 @@ document.addEventListener('DOMContentLoaded', async function () {
     const selectedCount = items.length;
     const draftChars = draftValue.length;
     const chapterCount = window.RRApp.isLoggedIn() ? sourcePayload.chapterIds.length : 0;
-    const hasInput = selectedCount > 0 || sourcePayload.inlineTexts.length > 0 || draftChars > 0 || chapterCount > 0;
-    const preview = buildInputPreview(items, draftValue) || (chapterCount ? getSelectedChapterSummary() : '');
+    const textbookReady = currentGenerationMode !== 'materials' && Boolean(getActiveTextbook());
+    const hasInput = selectedCount > 0 || sourcePayload.inlineTexts.length > 0 || draftChars > 0 || chapterCount > 0 || textbookReady;
+    const preview = buildInputPreview(items, draftValue)
+      || (textbookReady ? getTextbookPreview() : '')
+      || (chapterCount ? getSelectedChapterSummary() : '');
 
     canGenerate = hasInput;
     reviewSummarySelected.textContent = selectedCount
@@ -201,6 +246,52 @@ document.addEventListener('DOMContentLoaded', async function () {
     examNameInput.value = review && review.examName ? review.examName : '';
   }
 
+  function renderGenerationModeControls() {
+    const textbook = getActiveTextbook();
+    const hasTextbook = Boolean(textbook);
+
+    if (!window.RRApp.isLoggedIn()) {
+      currentGenerationMode = 'materials';
+      window.RRState.setGenerationMode(currentGenerationMode);
+    } else if (!hasTextbook && currentGenerationMode !== 'materials') {
+      currentGenerationMode = 'materials';
+      window.RRState.setGenerationMode(currentGenerationMode);
+    }
+
+    Array.from(generationModeGroup.querySelectorAll('[data-generation-mode]')).forEach(function (button) {
+      const mode = button.getAttribute('data-generation-mode') || 'materials';
+      const disabled = mode !== 'materials' && !hasTextbook;
+      button.disabled = disabled;
+      button.classList.toggle('is-active', currentGenerationMode === mode);
+    });
+
+    if (!window.RRApp.isLoggedIn()) {
+      generationModeNote.textContent = t('files_need_login');
+      textbookMeta.textContent = t('files_need_login');
+      return;
+    }
+
+    if (!window.RRState.getSubjectContext().courseName) {
+      generationModeNote.textContent = t('course_textbook_need_course');
+      textbookMeta.textContent = t('course_textbook_need_course');
+      return;
+    }
+
+    generationModeNote.textContent = hasTextbook ? t('review_generation_mode_copy') : t('review_textbook_missing');
+    if (!hasTextbook) {
+      textbookMeta.textContent = t('review_textbook_missing');
+      return;
+    }
+
+    textbookMeta.textContent = [
+      t('course_textbook_badge'),
+      textbook.filename,
+      formatBytes(textbook.size),
+      textbook.createdAt ? window.RRApp.formatRelativeDate(textbook.createdAt) : '',
+      formatGenerationMode(currentGenerationMode),
+    ].filter(Boolean).join(' · ');
+  }
+
   function syncModeUI() {
     const courseMode = window.RRApp.isLoggedIn();
     if (chapterSection) {
@@ -213,6 +304,8 @@ document.addEventListener('DOMContentLoaded', async function () {
       reviewOpenHistory.classList.toggle('hidden', !courseMode);
     }
     if (!courseMode) {
+      currentGenerationMode = 'materials';
+      window.RRState.setGenerationMode(currentGenerationMode);
       window.RRState.setSelectedChapterIds([]);
     }
   }
@@ -247,6 +340,7 @@ document.addEventListener('DOMContentLoaded', async function () {
       window.showToast('error', error.message || t('support_load_failed'));
     }
 
+    renderGenerationModeControls();
     renderChapterScope();
   }
 
@@ -308,7 +402,9 @@ document.addEventListener('DOMContentLoaded', async function () {
       chapterGroups.innerHTML = '';
       chapterNote.textContent = review && review.selectedChapterLabels && review.selectedChapterLabels.length
         ? getSelectedChapterSummary(review)
-        : t('review_chapter_scope_copy');
+        : t(currentGenerationMode === 'textbook'
+          ? 'review_chapter_scope_textbook_copy'
+          : (currentGenerationMode === 'combined' ? 'review_chapter_scope_combined_copy' : 'review_chapter_scope_copy'));
       chapterEmpty.textContent = review && review.selectedChapterLabels && review.selectedChapterLabels.length
         ? review.selectedChapterLabels.join(' · ')
         : t('review_chapter_scope_empty');
@@ -334,7 +430,9 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     chapterNote.textContent = selectedIds.length
       ? interpolate('review_chapter_selected_count', { n: selectedIds.length })
-      : t('review_chapter_scope_all');
+      : t(currentGenerationMode === 'textbook'
+        ? 'review_chapter_scope_textbook_all'
+        : (currentGenerationMode === 'combined' ? 'review_chapter_scope_combined_all' : 'review_chapter_scope_all'));
     chapterEmpty.classList.add('hidden');
     chapterGroups.innerHTML = structure.units.map(function (unit) {
       return [
@@ -417,7 +515,9 @@ document.addEventListener('DOMContentLoaded', async function () {
       window.RRApp.formatRelativeDate(current.createdAt),
       formatSubjectContext({ subjectCode: current.subjectCode, courseName: current.courseName }),
       formatExamContext(current.examType, current.examName),
+      current.generationMode ? formatGenerationMode(current.generationMode) : '',
       current.selectedChapterLabels && current.selectedChapterLabels.length ? current.selectedChapterLabels.join(' · ') : '',
+      current.textbookName ? t('course_textbook_badge') + ': ' + current.textbookName : '',
       (current.sourceLabels || []).join(' · '),
     ].filter(Boolean).join(' · ');
     window.RRApp.renderMarkdown(output, current.text);
@@ -440,6 +540,7 @@ document.addEventListener('DOMContentLoaded', async function () {
       format: formatSelect.value,
       lang: (document.documentElement.lang || '').toLowerCase().indexOf('en') === 0 ? 'en' : 'zh',
       length: currentLength,
+      generation_mode: currentGenerationMode,
       subject_code: courseMode ? (context.subjectCode || undefined) : undefined,
       course_name: courseMode ? (context.courseName || undefined) : undefined,
       exam_type: examTypeSelect.value || undefined,
@@ -466,6 +567,9 @@ document.addEventListener('DOMContentLoaded', async function () {
       examName: payload.exam_name,
       selectedChapterIds: data.selected_chapter_ids || payload.chapter_ids || [],
       selectedChapterLabels: data.selected_chapter_labels || [],
+      generationMode: data.generation_mode || payload.generation_mode || currentGenerationMode,
+      textbookFileId: data.textbook_file_id || '',
+      textbookName: getActiveTextbook() ? getActiveTextbook().filename : '',
     });
   }
 
@@ -533,7 +637,8 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   async function generateReview() {
     const payload = buildPayload();
-    if (!payload.text && (!payload.source_ids || !payload.source_ids.length) && (!payload.chapter_ids || !payload.chapter_ids.length)) {
+    const textbookReady = currentGenerationMode !== 'materials' && Boolean(getActiveTextbook());
+    if (!payload.text && (!payload.source_ids || !payload.source_ids.length) && (!payload.chapter_ids || !payload.chapter_ids.length) && !textbookReady) {
       window.showToast('info', t('review_no_sources'));
       sourceText.focus();
       return;
@@ -585,6 +690,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   sourceText.value = window.RRState.getDraftText();
   syncModeUI();
   renderExamControls();
+  renderGenerationModeControls();
   renderSources();
   renderLengthButtons();
   syncLongModeAvailability();
@@ -598,6 +704,17 @@ document.addEventListener('DOMContentLoaded', async function () {
   });
   examNameInput.addEventListener('input', function () {
     renderChapterScope();
+  });
+  generationModeGroup.addEventListener('click', function (event) {
+    const button = event.target.closest('[data-generation-mode]');
+    if (!button || button.disabled) {
+      return;
+    }
+    currentGenerationMode = button.getAttribute('data-generation-mode') || 'materials';
+    window.RRState.setGenerationMode(currentGenerationMode);
+    renderGenerationModeControls();
+    renderChapterScope();
+    renderActionDock();
   });
   chapterGroups.addEventListener('change', function (event) {
     const input = event.target;
@@ -668,6 +785,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   document.addEventListener('rr:langchange', function () {
     syncModeUI();
     renderExamControls();
+    renderGenerationModeControls();
     renderSources();
     renderChapterScope();
     renderLengthButtons();

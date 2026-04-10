@@ -74,9 +74,10 @@ def list_history(
     items: List[ReviewSheet] = session.exec(stmt).all()
     # Map source filenames
     src_ids = [it.source_id for it in items if it.source_id]
+    textbook_ids = [it.textbook_file_id for it in items if it.textbook_file_id]
     fn_map: Dict[int, str] = {}
-    if src_ids:
-        metas = session.exec(select(FileMeta).where(FileMeta.id.in_(src_ids))).all()
+    if src_ids or textbook_ids:
+        metas = session.exec(select(FileMeta).where(FileMeta.id.in_(src_ids + textbook_ids))).all()
         fn_map = {m.id: m.filename for m in metas if m and m.id}
     def preview(txt: str, n: int = 160) -> str:
         if not txt:
@@ -90,12 +91,15 @@ def list_history(
             "created_at": it.created_at.isoformat() if it.created_at else None,
             "source_id": it.source_id,
             "source_name": fn_map.get(it.source_id) if it.source_id else None,
+            "textbook_file_id": it.textbook_file_id,
+            "textbook_name": fn_map.get(it.textbook_file_id) if it.textbook_file_id else None,
             "subject_code": it.subject_code,
             "course_name": it.course_name,
             "exam_type": it.exam_type,
             "exam_name": it.exam_name,
             "selected_chapter_ids": load_json_list(it.selected_chapter_ids),
             "selected_chapter_labels": load_json_list(it.selected_chapter_labels),
+            "generation_mode": it.generation_mode or "materials",
             "preview": preview(it.content or ""),
             "is_favorite": bool(it.is_favorite),
         }
@@ -116,6 +120,11 @@ def get_history_item(rid: int, session: Session = Depends(get_session), uid: Opt
         fm = session.get(FileMeta, rs.source_id)
         if fm:
             src_name = fm.filename
+    textbook_name = None
+    if rs.textbook_file_id:
+        textbook_meta = session.get(FileMeta, rs.textbook_file_id)
+        if textbook_meta:
+            textbook_name = textbook_meta.filename
     return {
         "ok": True,
         "id": rs.id,
@@ -123,12 +132,15 @@ def get_history_item(rid: int, session: Session = Depends(get_session), uid: Opt
         "created_at": rs.created_at.isoformat() if rs.created_at else None,
         "source_id": rs.source_id,
         "source_name": src_name,
+        "textbook_file_id": rs.textbook_file_id,
+        "textbook_name": textbook_name,
         "subject_code": rs.subject_code,
         "course_name": rs.course_name,
         "exam_type": rs.exam_type,
         "exam_name": rs.exam_name,
         "selected_chapter_ids": load_json_list(rs.selected_chapter_ids),
         "selected_chapter_labels": load_json_list(rs.selected_chapter_labels),
+        "generation_mode": rs.generation_mode or "materials",
         "text": rs.content or "",
         "is_favorite": bool(rs.is_favorite),
     }

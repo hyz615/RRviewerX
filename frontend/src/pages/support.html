@@ -18,8 +18,8 @@
       })();
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="assets/styles.css?v=20250912" />
-  <script src="assets/i18n.js?v=20250920" defer></script>
+  <link rel="stylesheet" href="assets/styles.css?v=20260409" />
+  <script src="assets/i18n.js?v=20260409" defer></script>
     <script src="assets/api.js" defer></script>
     <script src="assets/toast.js" defer></script>
   </head>
@@ -27,11 +27,12 @@
     <div class="fixed top-0 left-0 right-0 z-10 topbar" id="app-topbar">
       <div class="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
   <a href="workspace.html" class="flex items-center"><img src="assets/logo.png" alt="RRviewer" class="brand-logo" /></a>
-        <div class="flex-1 flex items-center justify-center">
+        <div class="flex-1 flex items-center justify-center gap-3 px-3">
           <div class="flex items-center gap-2 px-2 py-1 rounded-full chip text-xs">
             <span class="inline-block w-2.5 h-2.5 rounded-full bg-sky-500"></span>
             <span data-i18n="support_page_title">工单</span>
           </div>
+          <div id="support-generation-counter" class="shell-counter shell-counter--compact is-loading text-xs">累计生成 -- 次</div>
         </div>
         <div class="flex items-center gap-3 text-sm">
           <button id="btn-dark" class="px-2 py-1 border border-slate-300 rounded" title="Dark mode">🌙</button>
@@ -79,6 +80,33 @@
             updateDmIcon();
           };
         }
+      })();
+      (function(){
+        let siteGenerationTotal = null;
+        function renderSiteCounter(){
+          const node = document.getElementById('support-generation-counter');
+          if (!node) return;
+          const formatter = new Intl.NumberFormat((document.documentElement.lang || '').startsWith('en') ? 'en-US' : 'zh-CN');
+          const label = window.__i18n__ ? window.__i18n__.t('site_generation_count') : '累计生成 {n} 次';
+          const display = siteGenerationTotal == null ? '--' : formatter.format(siteGenerationTotal);
+          node.textContent = label.replace('{n}', display);
+          node.classList.toggle('is-loading', siteGenerationTotal == null);
+        }
+        async function loadSiteCounter(){
+          try {
+            const r = await apiFetch('/status/quota', { headers: authHeaders() });
+            const j = await r.json();
+            const raw = Number(j && j.site_generation_total);
+            siteGenerationTotal = Number.isFinite(raw) ? raw : null;
+          } catch (_) {
+            siteGenerationTotal = null;
+          }
+          renderSiteCounter();
+        }
+        document.addEventListener('DOMContentLoaded', function(){
+          loadSiteCounter();
+          document.addEventListener('rr:langchange', renderSiteCounter);
+        });
       })();
       function renderList(items){
         const box = document.getElementById('my-list');

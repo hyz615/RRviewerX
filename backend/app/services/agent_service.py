@@ -1010,6 +1010,186 @@ def suggest_chapter_matches(
     ]
 
 
+def _detect_material_language(text: str) -> str:
+    sample = (text or "")[:4000]
+    zh_count = len(re.findall(r"[\u4e00-\u9fff]", sample))
+    en_count = len(re.findall(r"[A-Za-z]{3,}", sample))
+    return "zh" if zh_count >= en_count else "en"
+
+
+def _clean_heading_title(value: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(value or "").strip())
+    cleaned = cleaned.strip("-:：.、· ")
+    return cleaned[:120]
+
+
+def _unique_titles(values: List[str]) -> List[str]:
+    seen: set[str] = set()
+    result: List[str] = []
+    for value in values:
+        title = _clean_heading_title(value)
+        key = re.sub(r"\s+", "", title.lower())
+        if not title or key in seen:
+            continue
+        seen.add(key)
+        result.append(title)
+    return result
+
+
+def _split_paragraph_chunks(text: str, count: int) -> List[str]:
+    pieces = [piece.strip() for piece in re.split(r"\n\s*\n+", text or "") if piece.strip()]
+    if not pieces:
+        pieces = [piece.strip() for piece in str(text or "").splitlines() if piece.strip()]
+    if not pieces:
+        return [str(text or "").strip()]
+
+    total = len(pieces)
+    target = max(1, min(count, total))
+    chunks: List[str] = []
+    for index in range(target):
+        start = round(index * total / target)
+        end = round((index + 1) * total / target)
+        chunk = "\n\n".join(pieces[start:end]).strip()
+        if chunk:
+            chunks.append(chunk)
+    return chunks or [str(text or "").strip()]
+
+
+def _extract_textbook_heading_structure(text: str, lang: str) -> Dict[str, Any] | None:
+    raw_lines = str(text or "").splitlines()
+    if not raw_lines:
+        return None
+
+    unit_patterns = [
+        re.compile(r"^(?:unit|part|module|lesson)\s+[A-Za-z0-9IVXLCM]+(?:\s*[:.\-]\s*|\s+)(?P<title>.+)$", re.I),
+        re.compile(r"^第[一二三四五六七八九十百千0-9]+(?:单元|部分|编|篇|课)\s*[:：.\-]?\s*(?P<title>.+)$"),
+    ]
+    chapter_patterns = [
+        re.compile(r"^(?:chapter|section)\s+[A-Za-z0-9IVXLCM]+(?:\s*[:.\-]\s*|\s+)(?P<title>.+)$", re.I),
+        re.compile(r"^第[一二三四五六七八九十百千0-9]+(?:章|节)\s*[:：.\-]?\s*(?P<title>.+)$"),
+        re.compile(r"^(?P<num>\d{1,2}(?:\.\d{1,2}){0,2})\s+(?P<title>[A-Za-z][^.;]{2,80}|[\u4e00-\u9fff][^\n]{1,40})$"),
+    ]
+
+    default_unit_title = "教材章节" if lang == "zh" else "Textbook"
+    current_unit_title = default_unit_title
+    chapter_entries: List[Dict[str, Any]] = []
+    unit_titles_seen: set[str] = set()
+
+    for line_index, raw_line in enumerate(raw_lines):
+        line = str(raw_line or "").strip()
+        if not line or len(line) > 120:
+            continue
+
+        matched_unit = None
+        for pattern in unit_patterns:
+            matched_unit = pattern.match(line)
+            if matched_unit:
+                break
+        if matched_unit:
+            current_unit_title = _clean_heading_title(matched_unit.group("title") or line)
+            if not current_unit_title:
+                current_unit_title = default_unit_title
+            unit_titles_seen.add(current_unit_title)
+            continue
+
+        matched_chapter = None
+        for pattern in chapter_patterns:
+            matched_chapter = pattern.match(line)
+            if matched_chapter:
+                break
+        if not matched_chapter:
+            continue
+
+        chapter_title = _clean_heading_title(matched_chapter.groupdict().get("title") or line)
+        if not chapter_title:
+            continue
+        chapter_entries.append({
+            "title": chapter_title,
+            "unit_title": current_unit_title,
+            "line_index": line_index,
+        })
+
+    if len(chapter_entries) < 2 and unit_titles_seen:
+        chapter_entries = []
+        for line_index, raw_line in enumerate(raw_lines):
+            line = str(raw_line or "").strip()
+            if not line or len(line) > 120:
+                continue
+            for pattern in unit_patterns:
+                matched_unit = pattern.match(line)
+                if not matched_unit:
+                    continue
+                chapter_title = _clean_heading_title(matched_unit.group("title") or line)
+                if chapter_title:
+                    chapter_entries.append({
+                        "title": chapter_title,
+                        "unit_title": default_unit_title,
+                        "line_index": line_index,
+                    })
+                break
+
+    if len(chapter_entries) < 2:
+        return None
+
+    units: List[Dict[str, Any]] = []
+    unit_lookup: Dict[str, Dict[str, Any]] = {}
+    for index, chapter in enumerate(chapter_entries):
+        start = int(chapter["line_index"])
+        end = int(chapter_entries[index + 1]["line_index"]) if index + 1 < len(chapter_entries) else len(raw_lines)
+        content = "\n".join(raw_lines[start:end]).strip()
+        if not content:
+            continue
+        unit_title = _clean_heading_title(chapter.get("unit_title") or default_unit_title) or default_unit_title
+        if unit_title not in unit_lookup:
+            unit_lookup[unit_title] = {"title": unit_title, "chapters": []}
+            units.append(unit_lookup[unit_title])
+        unit_lookup[unit_title]["chapters"].append({
+            "title": chapter["title"],
+            "content": content,
+        })
+
+    total_chapters = sum(len(unit.get("chapters") or []) for unit in units)
+    if total_chapters < 2:
+        return None
+    return {"units": units, "strategy": "headings"}
+
+
+def infer_textbook_structure(text: str, filename: str | None = None) -> Dict[str, Any]:
+    lang = _detect_material_language(text)
+    parsed = _extract_textbook_heading_structure(text, lang)
+    if parsed is not None:
+        return parsed
+
+    runner = _LangChainRunner()
+    toks = _lang_tokens(lang)
+    system_role = toks["role"]
+    response = runner.run(system_role, f"{toks['chapters_instr']}\n\nMaterial:\n{str(text or '')[:12000]}")
+    chapter_titles = _unique_titles(_split_chapter_titles(response))
+    if not chapter_titles:
+        default_prefix = "章节" if lang == "zh" else "Chapter"
+        chapter_titles = [f"{default_prefix} {index}" for index in range(1, 5)]
+
+    chunks = _split_paragraph_chunks(text, len(chapter_titles))
+    default_unit_title = _clean_heading_title(filename or "") or ("教材章节" if lang == "zh" else "Textbook")
+    chapters: List[Dict[str, Any]] = []
+    for index, title in enumerate(chapter_titles):
+        content = chunks[index] if index < len(chunks) else ""
+        if not content:
+            continue
+        chapters.append({"title": title, "content": content})
+
+    if not chapters:
+        chapters = [{
+            "title": ("总览" if lang == "zh" else "Overview"),
+            "content": str(text or "").strip(),
+        }]
+
+    return {
+        "units": [{"title": default_unit_title, "chapters": chapters}],
+        "strategy": "llm",
+    }
+
+
 # ---------- Fast-mode helpers: one LLM call per chapter ---------- #
 
 def _prompt_chapter_all_sections(title: str, material: str, toks: Dict[str, Any]) -> str:

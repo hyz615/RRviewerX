@@ -3,7 +3,7 @@ from typing import Any, Iterable
 
 from sqlmodel import Session, select
 
-from ..models.models import Course, CourseUnit, CourseChapter, FileChapterMapping, FileMeta
+from ..models.models import Course, CourseUnit, CourseChapter, FileChapterMapping, FileMeta, ReviewSheet, CourseTextbookChapter
 
 
 def clean_optional_text(value: str | None) -> str | None:
@@ -32,6 +32,27 @@ def format_chapter_label(unit_title: str | None, chapter_title: str) -> str:
     if prefix:
         return f"{prefix} / {chapter_title}"
     return chapter_title
+
+
+def serialize_textbook_meta(file_meta: FileMeta | None) -> dict[str, Any] | None:
+    if file_meta is None or file_meta.id is None:
+        return None
+    return {
+        "file_id": file_meta.id,
+        "filename": file_meta.filename,
+        "content_type": file_meta.content_type,
+        "size": file_meta.size,
+        "created_at": file_meta.created_at.isoformat() if file_meta.created_at else None,
+    }
+
+
+def get_course_textbook(session: Session, course: Course | None) -> FileMeta | None:
+    if course is None or course.textbook_file_id is None:
+        return None
+    file_meta = session.get(FileMeta, course.textbook_file_id)
+    if file_meta is None:
+        return None
+    return file_meta
 
 
 def resolve_course(
@@ -90,6 +111,7 @@ def serialize_course_structure(session: Session, course: Course | None) -> dict[
 
     units = _load_units(session, course.id)
     chapters = _load_chapters(session, course.id)
+    textbook = get_course_textbook(session, course)
     chapter_map: dict[int, list[CourseChapter]] = {}
     for chapter in chapters:
         chapter_map.setdefault(chapter.unit_id, []).append(chapter)
@@ -118,6 +140,7 @@ def serialize_course_structure(session: Session, course: Course | None) -> dict[
         "id": course.id,
         "subject_code": course.subject_code,
         "course_name": course.course_name,
+        "textbook": serialize_textbook_meta(textbook),
         "unit_count": len(serialized_units),
         "chapter_count": chapter_count,
         "has_structure": chapter_count > 0,
@@ -204,6 +227,11 @@ def replace_course_structure(session: Session, course: Course, units_payload: It
         ).all()
         for mapping in removed_mappings:
             session.delete(mapping)
+        removed_textbook_rows = session.exec(
+            select(CourseTextbookChapter).where(CourseTextbookChapter.chapter_id.in_(removed_chapter_ids))
+        ).all()
+        for row in removed_textbook_rows:
+            session.delete(row)
         for chapter_id in removed_chapter_ids:
             session.delete(existing_chapters[chapter_id])
 
@@ -220,6 +248,115 @@ def replace_course_structure(session: Session, course: Course, units_payload: It
         "chapter_count": 0,
         "has_structure": False,
         "units": [],
+    }
+
+
+def _apply_course_scope_filters(
+    stmt: Any,
+    subject_field: Any,
+    course_field: Any,
+    subject_code: str | None,
+    course_name: str | None,
+) -> Any:
+    normalized_subject_code = normalize_subject_code(subject_code)
+    normalized_course_name = clean_optional_text(course_name)
+    if not normalized_course_name:
+        raise ValueError("course_name is required")
+
+    if normalized_subject_code:
+        stmt = stmt.where(subject_field == normalized_subject_code)
+    else:
+        stmt = stmt.where(subject_field.is_(None))
+    return stmt.where(course_field.ilike(normalized_course_name))
+
+
+def delete_course_bundle(
+    session: Session,
+    user_id: int | None,
+    subject_code: str | None,
+    course_name: str | None,
+) -> dict[str, Any] | None:
+    normalized_subject_code = normalize_subject_code(subject_code)
+    normalized_course_name = clean_optional_text(course_name)
+    if user_id is None or not normalized_course_name:
+        raise ValueError("course_name is required")
+
+    course = resolve_course(
+        session,
+        user_id,
+        normalized_subject_code,
+        normalized_course_name,
+        create_if_missing=False,
+    )
+
+    file_rows = list(session.exec(
+        _apply_course_scope_filters(
+            select(FileMeta).where(FileMeta.user_id == user_id),
+            FileMeta.subject_code,
+            FileMeta.course_name,
+            normalized_subject_code,
+            normalized_course_name,
+        )
+    ).all())
+    review_rows = list(session.exec(
+        _apply_course_scope_filters(
+            select(ReviewSheet).where(ReviewSheet.user_id == user_id),
+            ReviewSheet.subject_code,
+            ReviewSheet.course_name,
+            normalized_subject_code,
+            normalized_course_name,
+        )
+    ).all())
+
+    unit_rows: list[CourseUnit] = []
+    chapter_rows: list[CourseChapter] = []
+    textbook_rows: list[CourseTextbookChapter] = []
+    if course is not None and course.id is not None:
+        unit_rows = _load_units(session, course.id)
+        chapter_rows = _load_chapters(session, course.id)
+        textbook_rows = list(session.exec(
+            select(CourseTextbookChapter).where(CourseTextbookChapter.course_id == course.id)
+        ).all())
+
+    if course is None and not file_rows and not review_rows and not unit_rows and not chapter_rows and not textbook_rows:
+        return None
+
+    file_ids = [row.id for row in file_rows if row.id is not None]
+    chapter_ids = [row.id for row in chapter_rows if row.id is not None]
+    stored_paths = [row.stored_path for row in file_rows if row.stored_path]
+
+    delete_file_mappings_for_files(session, file_ids)
+    if chapter_ids:
+        chapter_mappings = session.exec(
+            select(FileChapterMapping).where(FileChapterMapping.chapter_id.in_(chapter_ids))
+        ).all()
+        for mapping in chapter_mappings:
+            session.delete(mapping)
+
+    for textbook_row in textbook_rows:
+        session.delete(textbook_row)
+
+    for review in review_rows:
+        session.delete(review)
+    for chapter in chapter_rows:
+        session.delete(chapter)
+    for unit in unit_rows:
+        session.delete(unit)
+    for file_row in file_rows:
+        session.delete(file_row)
+    if course is not None:
+        session.delete(course)
+
+    session.commit()
+    return {
+        "subject_code": normalized_subject_code,
+        "course_name": normalized_course_name,
+        "removed_course": bool(course is not None),
+        "removed_file_count": len(file_rows),
+        "removed_review_count": len(review_rows),
+        "removed_unit_count": len(unit_rows),
+        "removed_chapter_count": len(chapter_rows),
+        "stored_paths": stored_paths,
     }
 
 
@@ -376,6 +513,81 @@ def resolve_files_for_chapters(
         unit = unit_map.get(chapter.unit_id)
         labels.append(format_chapter_label(unit.title if unit else None, chapter.title))
     return file_ids, normalized_ids, labels
+
+
+def delete_course_textbook_chapters(session: Session, course_id: int) -> None:
+    rows = session.exec(
+        select(CourseTextbookChapter).where(CourseTextbookChapter.course_id == course_id)
+    ).all()
+    for row in rows:
+        session.delete(row)
+
+
+def list_course_textbook_chapters(
+    session: Session,
+    textbook_file_id: int,
+    chapter_ids: Iterable[int] | None = None,
+) -> list[dict[str, Any]]:
+    stmt = select(CourseTextbookChapter).where(CourseTextbookChapter.textbook_file_id == textbook_file_id)
+    normalized_ids = [chapter_id for chapter_id in {_coerce_int(value) for value in chapter_ids or []} if chapter_id is not None]
+    if normalized_ids:
+        stmt = stmt.where(CourseTextbookChapter.chapter_id.in_(normalized_ids))
+    rows = list(session.exec(stmt.order_by(CourseTextbookChapter.order_index.asc(), CourseTextbookChapter.id.asc())).all())
+    if not rows:
+        return []
+
+    chapter_map = {
+        chapter.id: chapter
+        for chapter in session.exec(
+            select(CourseChapter).where(CourseChapter.id.in_([row.chapter_id for row in rows]))
+        ).all()
+    }
+    unit_ids = [chapter.unit_id for chapter in chapter_map.values()]
+    unit_map = {
+        unit.id: unit
+        for unit in session.exec(select(CourseUnit).where(CourseUnit.id.in_(unit_ids))).all()
+    } if unit_ids else {}
+
+    return [
+        {
+            "chapter_id": row.chapter_id,
+            "chapter_title": chapter_map[row.chapter_id].title,
+            "unit_id": chapter_map[row.chapter_id].unit_id,
+            "unit_title": unit_map.get(chapter_map[row.chapter_id].unit_id).title if unit_map.get(chapter_map[row.chapter_id].unit_id) else None,
+            "label": format_chapter_label(
+                unit_map.get(chapter_map[row.chapter_id].unit_id).title if unit_map.get(chapter_map[row.chapter_id].unit_id) else None,
+                chapter_map[row.chapter_id].title,
+            ),
+            "content": row.content,
+            "order_index": row.order_index,
+        }
+        for row in rows
+        if row.chapter_id in chapter_map
+    ]
+
+
+def replace_course_textbook_chapters(
+    session: Session,
+    course: Course,
+    textbook_file_id: int,
+    chapter_contents: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    delete_course_textbook_chapters(session, course.id)
+
+    for index, item in enumerate(chapter_contents or []):
+        chapter_id = _coerce_int((item or {}).get("chapter_id"))
+        content = str((item or {}).get("content") or "").strip()
+        if chapter_id is None or not content:
+            continue
+        session.add(CourseTextbookChapter(
+            course_id=course.id,
+            textbook_file_id=textbook_file_id,
+            chapter_id=chapter_id,
+            content=content,
+            order_index=index,
+        ))
+    session.commit()
+    return list_course_textbook_chapters(session, textbook_file_id)
 
 
 def dump_json_list(values: Iterable[Any]) -> str | None:

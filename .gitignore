@@ -12,3 +12,5 @@ pytest_cache/
 .vscode/
 rrviewer.db
 *.db
+/backend/storage/uploads
+*.db

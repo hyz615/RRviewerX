@@ -99,6 +99,10 @@ def _sqlite_ensure_columns() -> None:
                     conn.exec_driver_sql("ALTER TABLE reviewsheet ADD COLUMN selected_chapter_ids TEXT")
                 if "selected_chapter_labels" not in cols_rs:
                     conn.exec_driver_sql("ALTER TABLE reviewsheet ADD COLUMN selected_chapter_labels TEXT")
+                if "generation_mode" not in cols_rs:
+                    conn.exec_driver_sql("ALTER TABLE reviewsheet ADD COLUMN generation_mode TEXT")
+                if "textbook_file_id" not in cols_rs:
+                    conn.exec_driver_sql("ALTER TABLE reviewsheet ADD COLUMN textbook_file_id INTEGER")
             except Exception:
                 pass
             # FileMeta table: ensure subject-mode columns
@@ -109,6 +113,16 @@ def _sqlite_ensure_columns() -> None:
                     conn.exec_driver_sql("ALTER TABLE filemeta ADD COLUMN subject_code TEXT")
                 if "course_name" not in cols_fm:
                     conn.exec_driver_sql("ALTER TABLE filemeta ADD COLUMN course_name TEXT")
+                if "source_role" not in cols_fm:
+                    conn.exec_driver_sql("ALTER TABLE filemeta ADD COLUMN source_role TEXT DEFAULT 'material'")
+            except Exception:
+                pass
+            # Course table: ensure textbook column exists
+            try:
+                res7 = conn.exec_driver_sql("PRAGMA table_info(course)")
+                cols_course = {row[1] for row in res7.fetchall()}
+                if "textbook_file_id" not in cols_course:
+                    conn.exec_driver_sql("ALTER TABLE course ADD COLUMN textbook_file_id INTEGER")
             except Exception:
                 pass
     except Exception:

@@ -16,14 +16,14 @@
       })();
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="assets/styles.css?v=20260408" />
+    <link rel="stylesheet" href="assets/styles.css?v=20260409" />
     <script>window.I18N_NO_FLOAT = true;</script>
-    <script src="assets/i18n.js?v=20260408" defer></script>
+    <script src="assets/i18n.js?v=20260409" defer></script>
     <script src="assets/api.js" defer></script>
     <script src="assets/toast.js" defer></script>
-    <script src="assets/app-shell.js?v=20260408" defer></script>
-    <script src="assets/app-state.js?v=20260407" defer></script>
-    <script src="assets/page-upload.js?v=20260408" defer></script>
+    <script src="assets/app-shell.js?v=20260409" defer></script>
+    <script src="assets/app-state.js?v=20260409" defer></script>
+    <script src="assets/page-upload.js?v=20260409" defer></script>
   </head>
   <body class="page-surface">
     <div id="app-shell-top"></div>
@@ -38,6 +38,18 @@
               <span id="structure-summary-badge" style="margin-left:auto; font-size:0.75rem; color:var(--muted); font-weight:400;"></span>
             </summary>
             <p id="upload-structure-note" class="panel-copy" style="margin:0.25rem 0 0.75rem;" data-i18n="course_structure_copy">先配置单元和章节，后续上传会自动匹配到课程内部章节。</p>
+            <input id="course-textbook-input" type="file" class="hidden" />
+            <div class="panel-header" style="margin-bottom:0.75rem;">
+              <div>
+                <h2 class="panel-title" data-i18n="course_textbook_title">课程 Textbook</h2>
+                <p id="course-textbook-note" class="panel-copy" data-i18n="course_textbook_copy">上传课程 textbook 后会自动提取章节，并同步更新下方结构。</p>
+              </div>
+              <div class="toolbar-row">
+                <button id="btn-upload-textbook" type="button" class="ghost-btn" data-i18n="course_textbook_upload">上传 textbook</button>
+                <button id="btn-remove-textbook" type="button" class="danger-btn" data-i18n="course_textbook_remove">移除 textbook</button>
+              </div>
+            </div>
+            <div id="course-textbook-card" class="note-box" style="margin-bottom:0.75rem;"></div>
             <div class="toolbar-row" style="margin-bottom:0.75rem;">
               <button id="btn-add-unit" type="button" class="ghost-btn" data-i18n="course_structure_add_unit">新增单元</button>
               <button id="btn-save-structure" type="button" class="soft-btn" data-i18n="course_structure_save">保存结构</button>

@@ -19,6 +19,7 @@ import httpx
 from urllib.parse import urlparse
 import mimetypes
 import socket, ipaddress
+from sqlalchemy import or_
 
 
 router = APIRouter()
@@ -148,6 +149,7 @@ async def upload_file(
                 user_id=ctx.get("user_id"),
                 subject_code=subject_code,
                 course_name=course_name,
+                source_role="material",
             )
             session.add(fm)
             session.commit()
@@ -239,6 +241,7 @@ async def upload_file(
                         user_id=ctx.get("user_id"),
                         subject_code=subject_code,
                         course_name=course_name,
+                        source_role="material",
                     )
                     session.add(fm)
                     session.commit()
@@ -293,6 +296,7 @@ def list_files(
     normalized_course_name = _clean_optional_text(course_name)
 
     stmt = select(FileMeta).where(FileMeta.user_id == _ctx.get("user_id"))
+    stmt = stmt.where(or_(FileMeta.source_role.is_(None), FileMeta.source_role == "material"))
     if normalized_subject_code:
         stmt = stmt.where(FileMeta.subject_code == normalized_subject_code)
     if normalized_course_name:
@@ -332,6 +336,7 @@ def clear_all_files(
     normalized_course_name = _clean_optional_text(course_name)
 
     stmt = select(FileMeta).where(FileMeta.user_id == user_id)
+    stmt = stmt.where(or_(FileMeta.source_role.is_(None), FileMeta.source_role == "material"))
     if normalized_subject_code:
         stmt = stmt.where(FileMeta.subject_code == normalized_subject_code)
     if normalized_course_name:

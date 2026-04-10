@@ -15,7 +15,7 @@ from .core.config import settings
 from .core.db import init_db, get_session, engine
 from .routes import auth, upload, generate, chat, embed, course_structure
 from .routes import status, admin, vip, history, support, test
-from .models.entities import FileMeta, ReviewSheet, FileChapterMapping
+from .models.entities import Course, FileMeta, ReviewSheet, FileChapterMapping
 
 # ── Structured Logging ──────────────────────────────────────────
 logging.basicConfig(
@@ -46,8 +46,10 @@ async def lifespan(app: FastAPI):
                     removed = 0
                     for fm in old_files:
                         used = session.exec(select(ReviewSheet).where(ReviewSheet.source_id == fm.id)).first()
+                        used_as_textbook = session.exec(select(ReviewSheet).where(ReviewSheet.textbook_file_id == fm.id)).first()
                         mapped = session.exec(select(FileChapterMapping).where(FileChapterMapping.file_id == fm.id)).first()
-                        if used or mapped:
+                        active_textbook = session.exec(select(Course).where(Course.textbook_file_id == fm.id)).first()
+                        if used or used_as_textbook or mapped or active_textbook:
                             continue
                         if fm.stored_path and os.path.exists(fm.stored_path):
                             try:

@@ -81,6 +81,16 @@ document.addEventListener('DOMContentLoaded', async function () {
     return t('format_review_pro');
   }
 
+  function formatGenerationMode(mode) {
+    if (mode === 'textbook') {
+      return t('review_generation_mode_textbook');
+    }
+    if (mode === 'combined') {
+      return t('review_generation_mode_combined');
+    }
+    return t('review_generation_mode_materials');
+  }
+
   function updateFavoriteButton() {
     favoritesButton.classList.toggle('is-active', filters.favoritesOnly);
     favoritesButton.title = filters.favoritesOnly ? t('unfavorite') : t('favorite');
@@ -124,6 +134,8 @@ document.addEventListener('DOMContentLoaded', async function () {
         '    <span>' + escapeHtml(window.RRApp.formatRelativeDate(item.created_at)) + '</span>',
         contextLabel ? '    <span>' + escapeHtml(contextLabel) + '</span>' : '',
         examLabel ? '    <span>' + escapeHtml(examLabel) + '</span>' : '',
+        item.generation_mode ? '    <span>' + escapeHtml(formatGenerationMode(item.generation_mode)) + '</span>' : '',
+        item.textbook_name ? '    <span>' + escapeHtml(t('course_textbook_badge') + ': ' + item.textbook_name) + '</span>' : '',
         item.is_favorite ? '    <span>★</span>' : '',
         '  </div>',
         '  <div class="history-card__title">' + escapeHtml(title) + '</div>',
@@ -211,6 +223,9 @@ document.addEventListener('DOMContentLoaded', async function () {
       examName: data.exam_name,
       selectedChapterIds: data.selected_chapter_ids || [],
       selectedChapterLabels: data.selected_chapter_labels || [],
+      generationMode: data.generation_mode || 'materials',
+      textbookFileId: data.textbook_file_id || '',
+      textbookName: data.textbook_name || '',
     });
     window.showToast('success', t('restored'));
     location.href = target;

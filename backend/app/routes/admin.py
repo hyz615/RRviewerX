@@ -6,7 +6,8 @@ from ..core.deps import get_current_user
 from ..models.entities import LocalUser, User
 import bcrypt
 from pydantic import BaseModel
-from ..models.models import Vip, MonthlyUsage
+from ..models.models import Vip
+from ..services.generation_stats_service import get_monthly_generation_count, set_monthly_generation_count
 
 router = APIRouter()
 
@@ -250,8 +251,7 @@ def get_monthly_usage(
 ):
     require_admin(current, session)
     now = datetime.now(timezone.utc)
-    m = session.exec(select(MonthlyUsage).where(MonthlyUsage.user_key == user_key, MonthlyUsage.year == now.year, MonthlyUsage.month == now.month)).first()
-    count = m.count if m else 0
+    count = get_monthly_generation_count(session, user_key, year=now.year, month=now.month)
     return {"ok": True, "user_key": user_key, "year": now.year, "month": now.month, "count": count}
 
 
@@ -271,13 +271,6 @@ def set_monthly_usage(
     require_admin(current, session)
     year = body.year or datetime.now(timezone.utc).year
     month = body.month or datetime.now(timezone.utc).month
-    m = session.exec(select(MonthlyUsage).where(MonthlyUsage.user_key == body.user_key, MonthlyUsage.year == year, MonthlyUsage.month == month)).first()
-    if not m:
-        m = MonthlyUsage(user_key=body.user_key, year=year, month=month, count=body.count)
-        session.add(m)
-    else:
-        m.count = body.count
-        m.updated_at = datetime.now(timezone.utc)
-        session.add(m)
+    set_monthly_generation_count(session, body.user_key, body.count, year=year, month=month)
     session.commit()
     return {"ok": True}

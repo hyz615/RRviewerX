@@ -6,9 +6,16 @@ from pydantic import BaseModel
 import json
 from sqlmodel import Session
 from ..core.db import get_session
-from ..core.deps import require_auth_or_trial
+from ..core.deps import get_user_key, require_auth_or_trial
 from ..services.agent_service import generate_review, generate_review_pro_agent_iter
-from ..services.course_service import dump_json_list, resolve_files_for_chapters
+from ..services.course_service import (
+    dump_json_list,
+    get_course_textbook,
+    list_course_textbook_chapters,
+    resolve_course,
+    resolve_files_for_chapters,
+)
+from ..services.generation_stats_service import record_review_generation
 from starlette.concurrency import run_in_threadpool
 from ..core.config import settings
 from ..models.models import ReviewSheet, FileMeta
@@ -51,6 +58,13 @@ def _normalize_chapter_ids(values: List[str] | None) -> list[int]:
     return normalized
 
 
+def _normalize_generation_mode(value: str | None) -> str:
+    cleaned = _clean_optional_text(value)
+    if cleaned in {"materials", "textbook", "combined"}:
+        return cleaned
+    return "materials"
+
+
 def _read_file_text(file_meta: FileMeta) -> str:
     if not file_meta.stored_path:
         return ""
@@ -73,6 +87,9 @@ def _collect_generation_sources(
     first_meta: FileMeta | None = None
     selected_chapter_ids = _normalize_chapter_ids(payload.chapter_ids)
     selected_chapter_labels: list[str] = []
+    generation_mode = _normalize_generation_mode(payload.generation_mode)
+    include_materials = generation_mode in {"materials", "combined"}
+    include_textbook = generation_mode in {"textbook", "combined"}
     candidate_ids: list[int] = []
     seen_candidate_ids: set[int] = set()
 
@@ -88,39 +105,93 @@ def _collect_generation_sources(
         seen_candidate_ids.add(file_id)
         candidate_ids.append(file_id)
 
-    for source_id in payload.source_ids or []:
-        add_candidate(source_id)
-    add_candidate(payload.source_id)
+    material_texts: List[str] = []
+    material_ids: List[int] = []
+    if include_materials:
+        for source_id in payload.source_ids or []:
+            add_candidate(source_id)
+        add_candidate(payload.source_id)
 
-    if selected_chapter_ids and owner_id is not None:
-        chapter_file_ids, selected_chapter_ids, selected_chapter_labels = resolve_files_for_chapters(
+        if selected_chapter_ids and owner_id is not None:
+            chapter_file_ids, selected_chapter_ids, selected_chapter_labels = resolve_files_for_chapters(
+                session,
+                owner_id,
+                selected_chapter_ids,
+            )
+            for file_id in chapter_file_ids:
+                add_candidate(file_id)
+
+        for file_id in candidate_ids:
+            file_meta = session.get(FileMeta, file_id)
+            if file_meta is None or not file_meta.stored_path or file_meta.source_role == "textbook":
+                continue
+            if owner_id is not None and file_meta.user_id != owner_id:
+                continue
+            extracted = _read_file_text(file_meta)
+            if not extracted:
+                continue
+            if first_meta is None:
+                first_meta = file_meta
+            material_texts.append(extracted)
+            material_ids.append(file_id)
+            used_names.append(file_meta.filename)
+
+        if material_ids:
+            used_source_id = material_ids[0]
+
+    effective_subject_code = _normalize_subject_code(payload.subject_code)
+    effective_course_name = _clean_optional_text(payload.course_name)
+    if first_meta is not None:
+        if not effective_subject_code:
+            effective_subject_code = first_meta.subject_code
+        if not effective_course_name:
+            effective_course_name = first_meta.course_name
+
+    textbook_file_id: int | None = None
+    textbook_missing_selected = False
+    used_textbook = False
+    textbook_texts: List[str] = []
+    if include_textbook and owner_id is not None and effective_course_name:
+        course = resolve_course(
             session,
             owner_id,
-            selected_chapter_ids,
+            effective_subject_code,
+            effective_course_name,
+            create_if_missing=False,
         )
-        for file_id in chapter_file_ids:
-            add_candidate(file_id)
+        textbook_meta = get_course_textbook(session, course)
+        if textbook_meta is not None and textbook_meta.id is not None:
+            textbook_file_id = textbook_meta.id
+            if selected_chapter_ids:
+                textbook_chapters = list_course_textbook_chapters(session, textbook_meta.id, selected_chapter_ids)
+                textbook_texts = [item.get("content") for item in textbook_chapters if str(item.get("content") or "").strip()]
+                textbook_missing_selected = not bool(textbook_texts)
+                if textbook_chapters and not selected_chapter_labels:
+                    selected_chapter_labels = [
+                        str(item.get("label") or "").strip()
+                        for item in textbook_chapters
+                        if str(item.get("label") or "").strip()
+                    ]
+            else:
+                full_text = _read_file_text(textbook_meta)
+                if full_text:
+                    textbook_texts = [full_text]
+            if textbook_texts:
+                used_textbook = True
+                if first_meta is None:
+                    first_meta = textbook_meta
+                if used_source_id is None:
+                    used_source_id = textbook_meta.id
+                used_names = [f"Textbook: {textbook_meta.filename}"] + used_names
 
-    texts: List[str] = []
-    ids: List[int] = []
-    for file_id in candidate_ids:
-        file_meta = session.get(FileMeta, file_id)
-        if file_meta is None or not file_meta.stored_path:
-            continue
-        if owner_id is not None and file_meta.user_id != owner_id:
-            continue
-        extracted = _read_file_text(file_meta)
-        if not extracted:
-            continue
-        if first_meta is None:
-            first_meta = file_meta
-        texts.append(extracted)
-        ids.append(file_id)
-        used_names.append(file_meta.filename)
-
-    if texts:
-        text = ("\n\n".join(texts) + ("\n\n" + text if text else "")).strip()
-        used_source_id = ids[0] if ids else None
+    combined_parts: List[str] = []
+    if textbook_texts:
+        combined_parts.extend(textbook_texts)
+    if material_texts:
+        combined_parts.extend(material_texts)
+    if text:
+        combined_parts.append(text)
+    text = "\n\n".join(part for part in combined_parts if part).strip()
 
     return {
         "text": text,
@@ -129,6 +200,10 @@ def _collect_generation_sources(
         "first_meta": first_meta,
         "selected_chapter_ids": selected_chapter_ids,
         "selected_chapter_labels": selected_chapter_labels,
+        "generation_mode": generation_mode,
+        "textbook_file_id": textbook_file_id,
+        "textbook_missing_selected": textbook_missing_selected,
+        "used_textbook": used_textbook,
     }
 
 
@@ -176,10 +251,16 @@ class GenerateRequest(BaseModel):
     exam_type: str | None = None
     exam_name: str | None = None
     chapter_ids: List[str] | None = None
+    generation_mode: str | None = None
 
 
 @router.post("")
-async def generate(payload: GenerateRequest, _ctx=Depends(require_auth_or_trial), session: Session = Depends(get_session)):
+async def generate(
+    payload: GenerateRequest,
+    _ctx=Depends(require_auth_or_trial),
+    user_key: str | None = Depends(get_user_key),
+    session: Session = Depends(get_session),
+):
     fmt = payload.format.lower()
     owner_id = _ctx.get("user_id")
     subject_code = _normalize_subject_code(payload.subject_code)
@@ -193,6 +274,14 @@ async def generate(payload: GenerateRequest, _ctx=Depends(require_auth_or_trial)
     first_meta = source_bundle["first_meta"]
     selected_chapter_ids = list(source_bundle["selected_chapter_ids"])
     selected_chapter_labels = list(source_bundle["selected_chapter_labels"])
+    generation_mode = str(source_bundle["generation_mode"])
+    textbook_file_id = source_bundle["textbook_file_id"]
+    textbook_missing_selected = bool(source_bundle["textbook_missing_selected"])
+    used_textbook = bool(source_bundle["used_textbook"])
+    if generation_mode in {"textbook", "combined"} and not textbook_file_id:
+        return {"ok": False, "error": "Course textbook not found"}
+    if generation_mode in {"textbook", "combined"} and selected_chapter_ids and textbook_missing_selected:
+        return {"ok": False, "error": "Selected chapters are not available in the course textbook"}
     if not text:
         return {"ok": False, "error": "Empty text"}
 
@@ -238,6 +327,8 @@ async def generate(payload: GenerateRequest, _ctx=Depends(require_auth_or_trial)
     else:
         text_out = header + json.dumps(result, ensure_ascii=False)
 
+    record_review_generation(session, user_key)
+
     review_id = None
     if owner_id is not None:
         rs = ReviewSheet(
@@ -251,10 +342,13 @@ async def generate(payload: GenerateRequest, _ctx=Depends(require_auth_or_trial)
             exam_name=exam_name,
             selected_chapter_ids=dump_json_list(selected_chapter_ids),
             selected_chapter_labels=dump_json_list(selected_chapter_labels),
+            generation_mode=generation_mode,
+            textbook_file_id=textbook_file_id if used_textbook else None,
         )
         session.add(rs)
-        session.commit()
+        session.flush()
         review_id = rs.id
+    session.commit()
     return {
         "ok": True,
         "id": review_id,
@@ -262,6 +356,8 @@ async def generate(payload: GenerateRequest, _ctx=Depends(require_auth_or_trial)
         "review_sheet": result,
         "selected_chapter_ids": selected_chapter_ids,
         "selected_chapter_labels": selected_chapter_labels,
+        "generation_mode": generation_mode,
+        "textbook_file_id": textbook_file_id if used_textbook else None,
     }
 
 
@@ -309,7 +405,12 @@ async def _iter_review_pro_events(model_input: str, lang: str):
 
 
 @router.post("/stream")
-async def generate_stream(payload: GenerateRequest, _ctx=Depends(require_auth_or_trial), session: Session = Depends(get_session)):
+async def generate_stream(
+    payload: GenerateRequest,
+    _ctx=Depends(require_auth_or_trial),
+    user_key: str | None = Depends(get_user_key),
+    session: Session = Depends(get_session),
+):
     # stream only for review_sheet_pro
     if (payload.format or "").lower() != "review_sheet_pro":
         # Fallback to non-stream JSON
@@ -335,6 +436,20 @@ async def generate_stream(payload: GenerateRequest, _ctx=Depends(require_auth_or
     first_meta = source_bundle["first_meta"]
     selected_chapter_ids = list(source_bundle["selected_chapter_ids"])
     selected_chapter_labels = list(source_bundle["selected_chapter_labels"])
+    generation_mode = str(source_bundle["generation_mode"])
+    textbook_file_id = source_bundle["textbook_file_id"]
+    textbook_missing_selected = bool(source_bundle["textbook_missing_selected"])
+    used_textbook = bool(source_bundle["used_textbook"])
+    if generation_mode in {"textbook", "combined"} and not textbook_file_id:
+        async def _missing_textbook():
+            yield _sse_event("error", "Course textbook not found")
+            yield _sse_event("done", "")
+        return StreamingResponse(_missing_textbook(), media_type="text/event-stream")
+    if generation_mode in {"textbook", "combined"} and selected_chapter_ids and textbook_missing_selected:
+        async def _missing_chapter_scope():
+            yield _sse_event("error", "Selected chapters are not available in the course textbook")
+            yield _sse_event("done", "")
+        return StreamingResponse(_missing_chapter_scope(), media_type="text/event-stream")
     if not text:
         async def _empty():
             yield _sse_event("error", "Empty text")
@@ -385,6 +500,7 @@ async def generate_stream(payload: GenerateRequest, _ctx=Depends(require_auth_or
             # Persist after generation completes for signed-in users only.
             if buf_text:
                 import json as _json
+                record_review_generation(session, user_key)
                 if owner_id is not None:
                     rs = ReviewSheet(
                         user_id=owner_id,
@@ -397,10 +513,13 @@ async def generate_stream(payload: GenerateRequest, _ctx=Depends(require_auth_or
                         exam_name=exam_name,
                         selected_chapter_ids=dump_json_list(selected_chapter_ids),
                         selected_chapter_labels=dump_json_list(selected_chapter_labels),
+                        generation_mode=generation_mode,
+                        textbook_file_id=textbook_file_id if used_textbook else None,
                     )
                     session.add(rs)
-                    session.commit()
+                    session.flush()
                     yield _sse_event("id", str(rs.id))
+                session.commit()
                 yield _sse_event("text", _json.dumps({"text": buf_text}, ensure_ascii=False))
         except Exception as e:
             yield _sse_event("error", str(e))

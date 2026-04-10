@@ -2,9 +2,8 @@ from fastapi import APIRouter, Depends
 from ..core.config import settings
 from ..core.deps import get_user_key
 from ..core.db import get_session
-from sqlmodel import Session, select
-from datetime import datetime, timezone
-from ..models.models import MonthlyUsage
+from sqlmodel import Session
+from ..services.generation_stats_service import get_monthly_generation_count, get_site_generation_total
 
 router = APIRouter()
 
@@ -26,11 +25,7 @@ def ai_status():
 
 @router.get("/quota")
 def quota_status(user_key: str | None = Depends(get_user_key), session: Session = Depends(get_session)):
-    used = 0
-    if user_key:
-        now = datetime.now(timezone.utc)
-        mu = session.exec(select(MonthlyUsage).where(MonthlyUsage.user_key == user_key, MonthlyUsage.year == now.year, MonthlyUsage.month == now.month)).first()
-        used = mu.count if mu else 0
+    used = get_monthly_generation_count(session, user_key)
     return {
         "ok": True,
         "vip": False,
@@ -39,4 +34,5 @@ def quota_status(user_key: str | None = Depends(get_user_key), session: Session 
         "used": used,
         "remaining": None,
         "limit": None,
+        "site_generation_total": get_site_generation_total(session),
     }

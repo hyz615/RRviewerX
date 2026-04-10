@@ -131,6 +131,16 @@
     }).format(date);
   }
 
+  function formatCount(value) {
+    const locale = (document.documentElement.lang || '').toLowerCase().indexOf('en') === 0 ? 'en-US' : 'zh-CN';
+    return new Intl.NumberFormat(locale).format(Math.max(0, Number(value || 0)));
+  }
+
+  function formatSiteGenerationLabel(total) {
+    const display = total == null ? '--' : formatCount(total);
+    return t('site_generation_count').replace('{n}', display);
+  }
+
   function setTheme(theme) {
     const next = theme === 'dark' ? 'dark' : 'light';
     document.documentElement.setAttribute('data-theme', next);
@@ -221,6 +231,7 @@
         '        <span class="shell-brand__tag" data-i18n="brand_tag">RUR1 INNOVATION & Skyru AI</span>',
         '      </div>',
         '    </a>',
+        '    <div id="shell-generation-counter" class="shell-counter is-loading" aria-live="polite">' + escapeHtml(formatSiteGenerationLabel(null)) + '</div>',
         '    <div class="shell-utility">',
         '      <a href="support.html" class="shell-inline-link" data-i18n="menu_support">工单</a>',
         '      <button id="btn-dark" class="shell-icon-btn" type="button" title="Theme" aria-label="Toggle theme">🌙</button>',
@@ -318,6 +329,10 @@
   function updateShellStatus() {
     const loginLink = document.getElementById('link-login');
     const logoutLink = document.getElementById('link-logout');
+    const generationCounter = document.getElementById('shell-generation-counter');
+    const total = shellState.quota && shellState.quota.site_generation_total != null
+      ? Number(shellState.quota.site_generation_total)
+      : null;
 
     if (loginLink && logoutLink) {
       if (isLoggedIn()) {
@@ -327,6 +342,11 @@
         loginLink.classList.remove('hidden');
         logoutLink.classList.add('hidden');
       }
+    }
+
+    if (generationCounter) {
+      generationCounter.textContent = formatSiteGenerationLabel(Number.isFinite(total) ? total : null);
+      generationCounter.classList.toggle('is-loading', !Number.isFinite(total));
     }
   }
 

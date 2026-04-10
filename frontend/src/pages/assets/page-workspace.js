@@ -11,6 +11,13 @@ document.addEventListener('DOMContentLoaded', async function () {
   const dialogCourseName = document.getElementById('dialog-course-name');
   const dialogConfirm = document.getElementById('btn-dialog-confirm');
   const dialogCancel = document.getElementById('btn-dialog-cancel');
+  const SESSION_KEYS = {
+    activeSubject: 'rr_subject_context_v1',
+    sessions: 'rr_subject_sessions_v1',
+    draftLegacy: 'rr_draft_text_v2',
+    reviewLegacy: 'rr_current_review_v2',
+    sourcesLegacy: 'rr_sources_v2',
+  };
 
   function t(key) {
     return window.RRApp.t(key);
@@ -214,10 +221,61 @@ document.addEventListener('DOMContentLoaded', async function () {
       '    <div class="course-card__meta">' + escapeHtml(lastReviewText) + '</div>',
       '  </div>',
       '  <div class="course-card__footer">',
-      '    <button type="button" class="primary-btn course-enter-btn" data-subject="' + escapeHtml(subjectCode) + '" data-course="' + escapeHtml(courseName) + '">' + t('enter_course') + '</button>',
+      '    <button type="button" class="primary-btn course-card__action" data-course-action="enter" data-subject="' + escapeHtml(subjectCode) + '" data-course="' + escapeHtml(courseName) + '">' + t('enter_course') + '</button>',
+      '    <button type="button" class="danger-btn course-card__action" data-course-action="delete" data-subject="' + escapeHtml(subjectCode) + '" data-course="' + escapeHtml(courseName) + '">' + t('delete_course') + '</button>',
       '  </div>',
       '</article>',
     ].join('');
+  }
+
+  function clearLegacyCourseState() {
+    try {
+      sessionStorage.removeItem(SESSION_KEYS.sourcesLegacy);
+      sessionStorage.removeItem(SESSION_KEYS.draftLegacy);
+      sessionStorage.removeItem(SESSION_KEYS.reviewLegacy);
+      sessionStorage.removeItem('rr_draft');
+      sessionStorage.removeItem('review');
+      sessionStorage.removeItem('review_id');
+      sessionStorage.removeItem('review_text');
+    } catch (_) {}
+  }
+
+  function removeCourseFromWorkspaceState(subjectCode, courseName) {
+    var map = readAllBuckets();
+    var targetKey = buildCourseKey(subjectCode, courseName);
+    if (map[targetKey]) {
+      delete map[targetKey];
+      try {
+        sessionStorage.setItem(SESSION_KEYS.sessions, JSON.stringify(map));
+      } catch (_) {}
+    }
+
+    var active = window.RRState.getSubjectContext();
+    if (buildCourseKey(active.subjectCode, active.courseName || '') !== targetKey) {
+      return;
+    }
+
+    var nextKey = Object.keys(map).find(function (key) {
+      var bucket = map[key] || {};
+      var parts = key.split('|');
+      var nextSubjectCode = String(bucket.subjectCode || decodeURIComponent(parts[0] || '')).trim().toLowerCase();
+      return Boolean(nextSubjectCode);
+    });
+
+    if (nextKey) {
+      var nextBucket = map[nextKey] || {};
+      var nextParts = nextKey.split('|');
+      window.RRState.setSubjectContext({
+        subjectCode: String(nextBucket.subjectCode || decodeURIComponent(nextParts[0] || '')).trim().toLowerCase(),
+        courseName: pickCourseName(nextBucket.courseName, decodeURIComponent(nextParts[1] || '')),
+      });
+      return;
+    }
+
+    try {
+      sessionStorage.setItem(SESSION_KEYS.activeSubject, JSON.stringify({ subjectCode: '', courseName: '' }));
+    } catch (_) {}
+    clearLegacyCourseState();
   }
 
   function renderGallery() {
@@ -318,6 +376,44 @@ document.addEventListener('DOMContentLoaded', async function () {
     });
   }
 
+  async function deleteCourse(subjectCode, courseName, button) {
+    var subjectLabel = t(window.RRState.getSubjectLabelKey(subjectCode));
+    var displayName = courseName || subjectLabel;
+    if (!window.confirm(interpolate('confirm_delete_course', { name: displayName }))) {
+      return;
+    }
+
+    var footer = button.closest('.course-card__footer');
+    var buttons = footer ? Array.prototype.slice.call(footer.querySelectorAll('button')) : [button];
+    var originalTexts = buttons.map(function (item) {
+      return item.textContent;
+    });
+
+    buttons.forEach(function (item) {
+      item.disabled = true;
+    });
+    button.textContent = t('deleting_course');
+
+    try {
+      await window.RRApp.fetchJSON(
+        '/course-structure?subject_code=' + encodeURIComponent(subjectCode || '') + '&course_name=' + encodeURIComponent(courseName || ''),
+        {
+          method: 'DELETE',
+          headers: window.RRApp.authHeaders(),
+        }
+      );
+      removeCourseFromWorkspaceState(subjectCode, courseName);
+      renderWorkspace();
+      window.showToast('success', t('course_deleted'));
+    } catch (error) {
+      buttons.forEach(function (item, index) {
+        item.disabled = false;
+        item.textContent = originalTexts[index];
+      });
+      window.showToast('error', error.message || t('operation_failed'));
+    }
+  }
+
   function renderWorkspace() {
     var loggedIn = window.RRApp.isLoggedIn();
     guestSection.classList.toggle('hidden', loggedIn);
@@ -396,12 +492,19 @@ document.addEventListener('DOMContentLoaded', async function () {
   }
 
   courseGrid.addEventListener('click', function (event) {
-    var btn = event.target.closest('.course-enter-btn');
+    var btn = event.target.closest('[data-course-action]');
     if (!btn) {
       return;
     }
+
+    var action = btn.dataset.courseAction;
     var subjectCode = btn.dataset.subject;
     var courseName = btn.dataset.course;
+    if (action === 'delete') {
+      deleteCourse(subjectCode, courseName, btn);
+      return;
+    }
+
     window.RRState.setSubjectContext({ subjectCode: subjectCode, courseName: courseName });
     location.href = 'upload.html';
   });

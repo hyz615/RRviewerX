@@ -10,6 +10,7 @@ from .models import (
     CourseUnit,
     CourseChapter,
     FileChapterMapping,
+    CourseTextbookChapter,
 )  # re-export for convenient imports
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "CourseUnit",
     "CourseChapter",
     "FileChapterMapping",
+    "CourseTextbookChapter",
 ]

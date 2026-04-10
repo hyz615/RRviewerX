@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Admin - Users</title>
     <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="assets/styles.css?v=20250912" />
+  <link rel="stylesheet" href="assets/styles.css?v=20260409" />
     <script src="assets/api.js" defer></script>
     <script src="assets/toast.js" defer></script>
   </head>
@@ -13,11 +13,12 @@
     <nav class="fixed top-0 left-0 right-0 z-10 topbar" id="app-topbar" role="navigation" aria-label="Admin navigation">
       <div class="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
   <a href="workspace.html" class="flex items-center"><img src="assets/logo.png" alt="RRviewer" class="brand-logo" /></a>
-        <div class="flex-1 flex items-center justify-center">
+        <div class="flex-1 flex items-center justify-center gap-3 px-3">
           <div class="flex items-center gap-2 px-2 py-1 rounded-full chip text-xs">
             <span class="inline-block w-2.5 h-2.5 rounded-full bg-sky-500"></span>
             <span>Admin</span>
           </div>
+          <div id="admin-generation-counter" class="shell-counter shell-counter--compact is-loading text-xs">累计生成 -- 次</div>
         </div>
         <div class="flex items-center gap-3 text-sm">
           <button id="btn-dark" class="px-2 py-1 border border-slate-300 rounded" title="Dark mode" aria-label="Toggle dark mode">🌙</button>
@@ -45,7 +46,7 @@
             <th scope="col">Email</th>
             <th>Admin</th>
             <th>Disabled</th>
-  <th>本月用量</th>
+  <th>本月生成</th>
     <th>VIP</th>
     <th>操作</th>
           </tr>
@@ -62,7 +63,7 @@
             <th>Sub</th>
             <th>Email</th>
     <th>Disabled</th>
-  <th>本月用量</th>
+  <th>本月生成</th>
     <th>VIP</th>
             <th>创建时间</th>
           </tr>
@@ -134,6 +135,24 @@
         const savedTheme = localStorage.getItem('rr_theme'); if (savedTheme) htmlEl.setAttribute('data-theme', savedTheme);
         const updateDmIcon = ()=>{ if (dmBtn) dmBtn.textContent = (htmlEl.getAttribute('data-theme')==='dark') ? '☀️' : '🌙'; };
         updateDmIcon(); if (dmBtn) dmBtn.onclick = ()=>{ const cur = htmlEl.getAttribute('data-theme')==='dark' ? 'light' : 'dark'; htmlEl.setAttribute('data-theme', cur); localStorage.setItem('rr_theme', cur); updateDmIcon(); };
+      })();
+      (function(){
+        const counter = document.getElementById('admin-generation-counter');
+        if (!counter) return;
+        const formatter = new Intl.NumberFormat('zh-CN');
+        const token = localStorage.getItem('token');
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        apiFetch('/status/quota', { headers })
+          .then(r => r.json())
+          .then(j => {
+            const raw = Number(j && j.site_generation_total);
+            counter.textContent = `累计生成 ${Number.isFinite(raw) ? formatter.format(raw) : '--'} 次`;
+            counter.classList.toggle('is-loading', !Number.isFinite(raw));
+          })
+          .catch(() => {
+            counter.textContent = '累计生成 -- 次';
+            counter.classList.add('is-loading');
+          });
       })();
   const API = window.API_BASE;
       const token = localStorage.getItem('token');

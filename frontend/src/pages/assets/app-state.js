@@ -91,6 +91,11 @@
     return cleaned ? cleaned.toLowerCase() : '';
   }
 
+  function normalizeGenerationMode(value) {
+    const cleaned = cleanOptionalText(value).toLowerCase();
+    return ['materials', 'textbook', 'combined'].indexOf(cleaned) >= 0 ? cleaned : 'materials';
+  }
+
   function uniqueStringArray(values) {
     const seen = new Set();
     return (values || []).map(function (value) {
@@ -124,10 +129,20 @@
     }
 
     const units = Array.isArray(structure.units) ? structure.units : [];
+    const textbook = structure.textbook && typeof structure.textbook === 'object'
+      ? {
+          fileId: structure.textbook.fileId || structure.textbook.file_id ? String(structure.textbook.fileId || structure.textbook.file_id) : '',
+          filename: cleanOptionalText(structure.textbook.filename) || '',
+          contentType: cleanOptionalText(structure.textbook.contentType || structure.textbook.content_type),
+          size: Number(structure.textbook.size || 0),
+          createdAt: structure.textbook.createdAt || structure.textbook.created_at || '',
+        }
+      : null;
     return {
       id: structure.id ? String(structure.id) : '',
       subjectCode: normalizeSubjectCode(structure.subjectCode || structure.subject_code),
       courseName: cleanOptionalText(structure.courseName || structure.course_name),
+      textbook: textbook && textbook.fileId ? textbook : null,
       unitCount: Number(structure.unitCount || structure.unit_count || units.length || 0),
       chapterCount: Number(structure.chapterCount || structure.chapter_count || 0),
       hasStructure: Boolean(structure.hasStructure || structure.has_structure || Number(structure.chapterCount || structure.chapter_count || 0) > 0),
@@ -189,6 +204,7 @@
       draftText: '',
       courseStructure: null,
       selectedChapterIds: [],
+      generationMode: 'materials',
       review: null,
     };
   }
@@ -240,6 +256,9 @@
       selectedChapterLabels: Array.isArray(review.selectedChapterLabels || review.selected_chapter_labels)
         ? (review.selectedChapterLabels || review.selected_chapter_labels).map(function (label) { return String(label || '').trim(); }).filter(Boolean)
         : [],
+      generationMode: normalizeGenerationMode(review.generationMode || review.generation_mode),
+      textbookFileId: review.textbookFileId || review.textbook_file_id ? String(review.textbookFileId || review.textbook_file_id) : '',
+      textbookName: cleanOptionalText(review.textbookName || review.textbook_name),
     };
 
     return normalized.id || normalized.text ? normalized : null;
@@ -280,6 +299,7 @@
       draftText: String(bucket && bucket.draftText ? bucket.draftText : ''),
       courseStructure: normalizeCourseStructure(bucket && bucket.courseStructure),
       selectedChapterIds: uniqueStringArray(bucket && bucket.selectedChapterIds),
+      generationMode: normalizeGenerationMode(bucket && bucket.generationMode),
       review: normalizeReview(bucket && bucket.review, currentContext),
     };
   }
@@ -581,10 +601,23 @@
     return getCurrentBucket().selectedChapterIds;
   }
 
+  function getGenerationMode() {
+    return getCurrentBucket().generationMode;
+  }
+
   function setSelectedChapterIds(chapterIds) {
     const normalized = uniqueStringArray(chapterIds);
     updateCurrentBucket(function (bucket) {
       bucket.selectedChapterIds = normalized;
+      return bucket;
+    });
+    return normalized;
+  }
+
+  function setGenerationMode(mode) {
+    const normalized = normalizeGenerationMode(mode);
+    updateCurrentBucket(function (bucket) {
+      bucket.generationMode = normalized;
       return bucket;
     });
     return normalized;
@@ -608,6 +641,7 @@
     updateCurrentBucket(function (bucket) {
       bucket.review = normalized;
       bucket.selectedChapterIds = normalized ? normalized.selectedChapterIds : [];
+      bucket.generationMode = normalized ? normalized.generationMode : bucket.generationMode;
       return bucket;
     });
     return normalized;
@@ -626,6 +660,7 @@
       selectedCount: getSelectedSources().length,
       draftChars: getDraftText().trim().length,
       selectedChapterCount: getSelectedChapterIds().length,
+      generationMode: getGenerationMode(),
       courseStructure: getCourseStructure(),
       review: getCurrentReview(),
     };
@@ -637,6 +672,7 @@
     return {
       subjectCode: context.subjectCode,
       courseName: context.courseName,
+      generationMode: getGenerationMode(),
       sourceIds: selected.filter(function (source) {
         return source.kind === 'file' && source.fileId;
       }).map(function (source) {
@@ -666,6 +702,7 @@
     getDraftText: getDraftText,
     getExamLabelKey: getExamLabelKey,
     getExamOptions: getExamOptions,
+    getGenerationMode: getGenerationMode,
     getReviewPayload: getReviewPayload,
     getSelectedChapterIds: getSelectedChapterIds,
     getSelectedSources: getSelectedSources,
@@ -679,6 +716,7 @@
     setCourseStructure: setCourseStructure,
     setCurrentReview: setCurrentReview,
     setDraftText: setDraftText,
+    setGenerationMode: setGenerationMode,
     setSelectedChapterIds: setSelectedChapterIds,
     setSourceSelected: setSourceSelected,
     setSubjectContext: setSubjectContext,

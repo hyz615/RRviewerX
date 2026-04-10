@@ -33,6 +33,11 @@ document.addEventListener('DOMContentLoaded', async function () {
   const structureBadge = document.getElementById('structure-summary-badge');
   const addUnitButton = document.getElementById('btn-add-unit');
   const saveStructureButton = document.getElementById('btn-save-structure');
+  const textbookInput = document.getElementById('course-textbook-input');
+  const textbookNote = document.getElementById('course-textbook-note');
+  const textbookCard = document.getElementById('course-textbook-card');
+  const uploadTextbookButton = document.getElementById('btn-upload-textbook');
+  const removeTextbookButton = document.getElementById('btn-remove-textbook');
 
   // Logged-in users enter via course mode; guests can use upload/review directly.
   const _initContext = window.RRState.getSubjectContext();
@@ -92,6 +97,20 @@ document.addEventListener('DOMContentLoaded', async function () {
       structure.unitCount + ' ' + t('course_units_short'),
       structure.chapterCount + ' ' + t('course_chapters_short'),
     ].join(' · ');
+  }
+
+  function formatBytes(value) {
+    const size = Number(value || 0);
+    if (!size) {
+      return '0 B';
+    }
+    if (size >= 1024 * 1024) {
+      return (size / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+    if (size >= 1024) {
+      return Math.round(size / 1024) + ' KB';
+    }
+    return size + ' B';
   }
 
   function cloneStructure(structure) {
@@ -225,6 +244,8 @@ document.addEventListener('DOMContentLoaded', async function () {
         : '';
     }
 
+    renderTextbookPanel();
+
     if (!window.RRApp.isLoggedIn()) {
       if (structureNote) structureNote.textContent = t('files_need_login');
       structureEditor.innerHTML = '<div class="empty-state">' + escapeHtml(t('files_need_login')) + '</div>';
@@ -264,6 +285,52 @@ document.addEventListener('DOMContentLoaded', async function () {
         '</article>',
       ].join('');
     }).join('');
+  }
+
+  function renderTextbookPanel() {
+    const context = window.RRState.getSubjectContext();
+    const structure = getSavedStructure();
+    const textbook = structure && structure.textbook ? structure.textbook : null;
+    const editable = canEditStructure();
+
+    uploadTextbookButton.disabled = !editable;
+    removeTextbookButton.disabled = !editable || !textbook;
+    uploadTextbookButton.textContent = textbook ? t('course_textbook_replace') : t('course_textbook_upload');
+
+    if (!window.RRApp.isLoggedIn()) {
+      textbookNote.textContent = t('files_need_login');
+      textbookCard.innerHTML = '<div class="empty-state">' + escapeHtml(t('files_need_login')) + '</div>';
+      return;
+    }
+
+    if (!context.courseName) {
+      textbookNote.textContent = t('course_textbook_need_course');
+      textbookCard.innerHTML = '<div class="empty-state">' + escapeHtml(t('course_textbook_need_course')) + '</div>';
+      return;
+    }
+
+    textbookNote.textContent = textbook ? t('course_textbook_ready') : t('course_textbook_copy');
+    if (!textbook) {
+      textbookCard.innerHTML = '<div class="empty-state">' + escapeHtml(t('course_textbook_empty')) + '</div>';
+      return;
+    }
+
+    const meta = [
+      formatBytes(textbook.size),
+      textbook.createdAt ? window.RRApp.formatRelativeDate(textbook.createdAt) : '',
+      structure ? formatStructureSummary(structure) : '',
+    ].filter(Boolean).join(' · ');
+
+    textbookCard.innerHTML = [
+      '<div class="source-card source-card--selected">',
+      '  <div class="source-card__meta">',
+      '    <span class="source-badge">' + escapeHtml(t('course_textbook_badge')) + '</span>',
+      meta ? '    <span>' + escapeHtml(meta) + '</span>' : '',
+      '  </div>',
+      '  <div class="source-card__title">' + escapeHtml(textbook.filename || '') + '</div>',
+      '  <div class="source-card__preview">' + escapeHtml(t('course_textbook_ready')) + '</div>',
+      '</div>',
+    ].join('');
   }
 
   function renderMappingChips(matches) {
@@ -487,6 +554,76 @@ document.addEventListener('DOMContentLoaded', async function () {
     } finally {
       fileInput.value = '';
       setBusy(pickButton, false, t('uploading'), t('upload_pick_files'));
+    }
+  }
+
+  async function uploadTextbook(file) {
+    if (!file) {
+      return;
+    }
+
+    const context = window.RRState.getSubjectContext();
+    if (!window.RRApp.isLoggedIn()) {
+      window.showToast('info', t('files_need_login'));
+      return;
+    }
+    if (!context.courseName) {
+      window.showToast('info', t('course_textbook_need_course'));
+      return;
+    }
+
+    setBusy(uploadTextbookButton, true, t('common_loading'), t(window.RRState.getCourseStructure() && window.RRState.getCourseStructure().textbook ? 'course_textbook_replace' : 'course_textbook_upload'));
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (context.subjectCode) {
+        formData.append('subject_code', context.subjectCode);
+      }
+      formData.append('course_name', context.courseName);
+
+      const data = await window.RRApp.fetchJSON('/course-structure/textbook', {
+        method: 'POST',
+        headers: window.RRApp.authHeaders(),
+        body: formData,
+      });
+      const structure = window.RRState.setCourseStructure(data ? data.course : null);
+      structureDraft = cloneStructure(structure);
+      renderStructureEditor();
+      renderLists();
+      window.showToast('success', t('course_textbook_uploaded'));
+    } catch (error) {
+      window.showToast('error', error.message || t('operation_failed'));
+    } finally {
+      textbookInput.value = '';
+      setBusy(uploadTextbookButton, false, t('common_loading'), t(window.RRState.getCourseStructure() && window.RRState.getCourseStructure().textbook ? 'course_textbook_replace' : 'course_textbook_upload'));
+    }
+  }
+
+  async function removeTextbook() {
+    if (!window.RRApp.isLoggedIn()) {
+      window.showToast('info', t('files_need_login'));
+      return;
+    }
+    if (!window.RRState.getCourseStructure() || !window.RRState.getCourseStructure().textbook) {
+      return;
+    }
+    if (!window.confirm(t('confirm_remove_textbook'))) {
+      return;
+    }
+
+    try {
+      const params = getSubjectParams();
+      const data = await window.RRApp.fetchJSON('/course-structure/textbook?' + params.toString(), {
+        method: 'DELETE',
+        headers: window.RRApp.authHeaders(),
+      });
+      const structure = window.RRState.setCourseStructure(data ? data.course : null);
+      structureDraft = cloneStructure(structure);
+      renderStructureEditor();
+      renderLists();
+      window.showToast('success', t('course_textbook_removed'));
+    } catch (error) {
+      window.showToast('error', error.message || t('operation_failed'));
     }
   }
 
@@ -739,6 +876,13 @@ document.addEventListener('DOMContentLoaded', async function () {
   addUnitButton.addEventListener('click', function (event) {
     onStructureClick(event);
   });
+  uploadTextbookButton.addEventListener('click', function () {
+    textbookInput.click();
+  });
+  textbookInput.addEventListener('change', function () {
+    uploadTextbook((textbookInput.files || [])[0]);
+  });
+  removeTextbookButton.addEventListener('click', removeTextbook);
   saveStructureButton.addEventListener('click', saveStructure);
   structureEditor.addEventListener('click', onStructureClick);
   structureEditor.addEventListener('input', onStructureInput);

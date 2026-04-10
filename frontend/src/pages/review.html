@@ -16,11 +16,11 @@
       })();
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="assets/styles.css?v=20260408" />
+    <link rel="stylesheet" href="assets/styles.css?v=20260409" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" />
     <script>window.I18N_NO_FLOAT = true;</script>
-    <script src="assets/i18n.js?v=20260408" defer></script>
+    <script src="assets/i18n.js?v=20260409" defer></script>
     <script src="assets/api.js" defer></script>
     <script src="assets/toast.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
@@ -28,9 +28,9 @@
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/contrib/auto-render.min.js" defer></script>
-    <script src="assets/app-shell.js?v=20260408" defer></script>
-    <script src="assets/app-state.js?v=20260407" defer></script>
-    <script src="assets/page-review.js?v=20260408" defer></script>
+    <script src="assets/app-shell.js?v=20260409" defer></script>
+    <script src="assets/app-state.js?v=20260409" defer></script>
+    <script src="assets/page-review.js?v=20260409" defer></script>
   </head>
   <body class="page-surface">
     <div id="app-shell-top"></div>
@@ -70,6 +70,19 @@
               <input id="review-exam-name" class="input-field" type="text" data-i18n-placeholder="exam_name_placeholder" placeholder="例如：2026 春期中" />
             </label>
           </div>
+
+          <div class="panel-header" style="margin-top:1rem; margin-bottom:0.75rem;">
+            <div>
+              <h2 class="panel-title" data-i18n="review_generation_mode_title">生成依据</h2>
+              <p id="review-generation-mode-note" class="panel-copy" data-i18n="review_generation_mode_copy">选择本次生成使用当前材料、课程 textbook 或二者组合。</p>
+            </div>
+          </div>
+          <div id="review-generation-mode-group" class="segmented-group" style="flex-wrap:wrap;">
+            <button type="button" class="segmented-btn" data-generation-mode="materials" data-i18n="review_generation_mode_materials">仅当前材料</button>
+            <button type="button" class="segmented-btn" data-generation-mode="textbook" data-i18n="review_generation_mode_textbook">仅 textbook</button>
+            <button type="button" class="segmented-btn" data-generation-mode="combined" data-i18n="review_generation_mode_combined">textbook + 当前材料</button>
+          </div>
+          <div id="review-textbook-meta" class="helper-text" style="margin-top:0.65rem;"></div>
 
           <div id="review-chapter-section">
             <div class="panel-header" style="margin-top:1rem; margin-bottom:0.75rem;">
