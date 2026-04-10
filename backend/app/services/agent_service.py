@@ -1055,6 +1055,500 @@ def _split_paragraph_chunks(text: str, count: int) -> List[str]:
     return chunks or [str(text or "").strip()]
 
 
+def _looks_explicit_textbook_heading(line: str) -> bool:
+    if not line or len(line) > 120:
+        return False
+    patterns = [
+        r"^(?:unit|part|module|lesson|chapter|section|topic)\s+[A-Za-z0-9IVXLCM]+(?:\s*[:.\-]\s*|\s+).+$",
+        r"^第[一二三四五六七八九十百千0-9]+(?:单元|部分|编|篇|课|章|节)\s*[:：.\-]?\s*.+$",
+        r"^(?:\d{1,2}(?:\.\d{1,3}){0,3}|[IVXLCM]{1,8}|[A-Z])(?:[.)]|\s*[:：.\-])\s*\S.+$",
+    ]
+    return any(re.match(pattern, line, re.I) for pattern in patterns)
+
+
+def _looks_loose_textbook_heading(line: str, prev_blank: bool, next_blank: bool) -> bool:
+    if not line or len(line) > 70 or not (prev_blank or next_blank):
+        return False
+    if re.search(r"https?://|www\.", line, re.I):
+        return False
+    if re.fullmatch(r"(?:page|p\.)\s*\d+", line, re.I):
+        return False
+    if re.search(r"[。！？!?；;]$", line):
+        return False
+    if len(re.findall(r"[，,、；;]", line)) > 1:
+        return False
+
+    english_words = re.findall(r"[A-Za-z]+(?:['-][A-Za-z]+)?", line)
+    zh_chars = len(re.findall(r"[\u4e00-\u9fff]", line))
+    digits = len(re.findall(r"\d", line))
+
+    if english_words:
+        return len(english_words) <= 12 and digits <= 4 and bool(re.search(r"[A-Z]", line))
+    if zh_chars:
+        return zh_chars <= 30 and digits <= 6
+    return len(line) <= 40 and digits <= 6
+
+
+def _collect_textbook_heading_candidates(
+    raw_lines: List[str],
+    *,
+    start_line: int = 1,
+    end_line: int | None = None,
+) -> List[Dict[str, Any]]:
+    ranked: List[Dict[str, Any]] = []
+    safe_start = max(1, int(start_line or 1))
+    safe_end = len(raw_lines) if end_line is None else min(len(raw_lines), max(0, int(end_line)))
+    if safe_end < safe_start:
+        return []
+
+    for line_number in range(safe_start, safe_end + 1):
+        raw_line = raw_lines[line_number - 1]
+        text = _clean_heading_title(raw_line)
+        if not text:
+            continue
+        prev_blank = line_number == 1 or not str(raw_lines[line_number - 2] or "").strip()
+        next_blank = line_number == len(raw_lines) or not str(raw_lines[line_number] or "").strip()
+        if _looks_explicit_textbook_heading(text):
+            ranked.append({"line_number": line_number, "text": text, "priority": 2})
+        elif _looks_loose_textbook_heading(text, prev_blank, next_blank):
+            ranked.append({"line_number": line_number, "text": text, "priority": 1})
+
+    selected: List[Dict[str, Any]] = []
+    total_chars = 0
+    for priority in (2, 1):
+        for item in ranked:
+            if item["priority"] != priority:
+                continue
+            rendered = f"{item['line_number']}: {item['text']}"
+            if len(selected) >= 400 or total_chars + len(rendered) + 1 > 18000:
+                continue
+            selected.append({"line_number": item["line_number"], "text": item["text"]})
+            total_chars += len(rendered) + 1
+    selected.sort(key=lambda item: int(item["line_number"]))
+    return selected
+
+
+def _looks_textbook_toc_anchor(line: str) -> bool:
+    cleaned = _clean_heading_title(line)
+    if not cleaned:
+        return False
+    normalized = re.sub(r"\s+", " ", cleaned.lower()).strip()
+    if normalized in {"contents", "table of contents", "toc", "目录", "目次"}:
+        return True
+    if "目录" in cleaned and len(cleaned) <= 12:
+        return True
+    return normalized.startswith("table of contents") or normalized.startswith("contents ")
+
+
+def _looks_textbook_toc_entry(line: str) -> bool:
+    cleaned = _clean_heading_title(line)
+    if not cleaned or len(cleaned) > 140 or _looks_textbook_toc_anchor(cleaned):
+        return False
+    if re.fullmatch(r"(?:page|p\.)\s*\d+", cleaned, re.I):
+        return False
+    if re.search(r"(?:\.{2,}|·{2,}|…{2,}|-{2,}|_{2,})\s*(?:\d{1,4}|[ivxlcdm]{1,8})\s*$", cleaned, re.I):
+        return True
+    if re.search(r"\s+(?:\d{1,4}|[ivxlcdm]{1,8})\s*$", cleaned, re.I):
+        prefix = re.sub(r"\s+(?:\d{1,4}|[ivxlcdm]{1,8})\s*$", "", cleaned, flags=re.I).strip()
+        if _looks_explicit_textbook_heading(prefix):
+            return True
+        if re.match(r"^(?:\d{1,2}(?:\.\d{1,3}){0,3}|[IVXLCM]{1,8}|[A-Z])[.)]?\s+\S.+$", prefix, re.I):
+            return True
+        english_words = re.findall(r"[A-Za-z]+(?:['-][A-Za-z]+)?", prefix)
+        zh_chars = len(re.findall(r"[\u4e00-\u9fff]", prefix))
+        if english_words and len(english_words) <= 14:
+            return True
+        if zh_chars and zh_chars <= 36:
+            return True
+    return False
+
+
+def _extract_textbook_toc_candidates(raw_lines: List[str]) -> Dict[str, Any] | None:
+    if not raw_lines:
+        return None
+
+    anchor_search_limit = min(len(raw_lines), max(80, min(240, len(raw_lines) // 3 + 20)))
+    anchor_line = None
+    for line_number in range(1, anchor_search_limit + 1):
+        if _looks_textbook_toc_anchor(raw_lines[line_number - 1]):
+            anchor_line = line_number
+            break
+    if anchor_line is None:
+        return None
+
+    entries: List[Dict[str, Any]] = []
+    noise_streak = 0
+    blank_streak = 0
+    strong_entry_count = 0
+    toc_end_line = anchor_line
+    scan_limit = min(len(raw_lines), anchor_line + 160)
+    for line_number in range(anchor_line + 1, scan_limit + 1):
+        text = _clean_heading_title(raw_lines[line_number - 1])
+        if not text:
+            blank_streak += 1
+            if entries and blank_streak >= 3 and noise_streak >= 2:
+                break
+            continue
+
+        had_blank_gap = blank_streak > 0
+        blank_streak = 0
+        if _looks_textbook_toc_anchor(text):
+            if entries:
+                break
+            continue
+
+        is_strong_entry = _looks_textbook_toc_entry(text)
+        is_weak_entry = (not is_strong_entry) and _looks_explicit_textbook_heading(text) and len(text) <= 100
+        if is_strong_entry:
+            entries.append({"line_number": line_number, "text": text})
+            toc_end_line = line_number
+            strong_entry_count += 1
+            noise_streak = 0
+            continue
+
+        if is_weak_entry:
+            if entries and strong_entry_count >= 2 and had_blank_gap:
+                break
+            entries.append({"line_number": line_number, "text": text})
+            toc_end_line = line_number
+            noise_streak = 0
+            continue
+
+        noise_streak += 1
+        if entries and noise_streak >= 8:
+            break
+
+    if len(entries) < 2:
+        return None
+    return {
+        "anchor_line": anchor_line,
+        "end_line": toc_end_line,
+        "entries": entries,
+    }
+
+
+def _extract_json_object(raw: str) -> Dict[str, Any] | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+
+    candidates: List[str] = []
+    fenced = re.findall(r"```(?:json)?\s*(.*?)\s*```", text, re.I | re.S)
+    candidates.extend(fenced)
+    candidates.append(text)
+
+    for candidate in candidates:
+        snippet = candidate.strip()
+        if not snippet:
+            continue
+        start = snippet.find("{")
+        end = snippet.rfind("}")
+        if start < 0 or end <= start:
+            continue
+        try:
+            payload = json.loads(snippet[start:end + 1])
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _heading_key(value: Any) -> str:
+    return re.sub(r"\s+", " ", _clean_heading_title(str(value or "")).lower()).strip()
+
+
+def _resolve_textbook_start_line(
+    chapter: Dict[str, Any],
+    raw_lines: List[str],
+    candidate_lookup: Dict[str, List[int]],
+    used_lines: set[int],
+    *,
+    min_line_number: int = 1,
+) -> int | None:
+    for key in ("start_line", "startLine", "line", "line_number"):
+        value = chapter.get(key)
+        if value is None:
+            continue
+        try:
+            line_number = int(str(value).strip())
+        except Exception:
+            continue
+        if min_line_number <= line_number <= len(raw_lines) and line_number not in used_lines:
+            return line_number
+
+    for key in ("heading_text", "heading", "raw_heading", "source_text"):
+        normalized = _heading_key(chapter.get(key))
+        if not normalized:
+            continue
+        for line_number in candidate_lookup.get(normalized, []):
+            if line_number not in used_lines:
+                return line_number
+
+    title_key = _heading_key(chapter.get("title"))
+    if not title_key:
+        return None
+    for line_number in range(max(1, min_line_number), len(raw_lines) + 1):
+        raw_line = raw_lines[line_number - 1]
+        if line_number in used_lines:
+            continue
+        normalized = _heading_key(raw_line)
+        if normalized == title_key or title_key in normalized:
+            return line_number
+    return None
+
+
+def _structure_from_llm_payload(
+    payload: Dict[str, Any],
+    raw_lines: List[str],
+    candidates: List[Dict[str, Any]],
+    default_unit_title: str,
+    *,
+    min_line_number: int = 1,
+    strategy: str = "llm",
+) -> Dict[str, Any] | None:
+    units_payload = payload.get("units")
+    if not isinstance(units_payload, list):
+        chapters_payload = payload.get("chapters")
+        if isinstance(chapters_payload, list):
+            units_payload = [{"title": default_unit_title, "chapters": chapters_payload}]
+        else:
+            units_payload = []
+
+    candidate_lookup: Dict[str, List[int]] = {}
+    for item in candidates:
+        line_number = int(item.get("line_number") or 0)
+        if line_number < min_line_number:
+            continue
+        key = _heading_key(item.get("text"))
+        if not key:
+            continue
+        candidate_lookup.setdefault(key, []).append(line_number)
+
+    resolved: List[Dict[str, Any]] = []
+    used_lines: set[int] = set()
+    for unit_order, unit in enumerate(units_payload):
+        if not isinstance(unit, dict):
+            continue
+        unit_title = _clean_heading_title(unit.get("title") or default_unit_title) or default_unit_title
+        for chapter_order, chapter in enumerate(unit.get("chapters") or []):
+            if not isinstance(chapter, dict):
+                continue
+            title = _clean_heading_title(chapter.get("title") or "")
+            if not title:
+                continue
+            start_line = _resolve_textbook_start_line(
+                chapter,
+                raw_lines,
+                candidate_lookup,
+                used_lines,
+                min_line_number=min_line_number,
+            )
+            if start_line is None:
+                continue
+            used_lines.add(start_line)
+            resolved.append({
+                "unit_title": unit_title,
+                "title": title,
+                "start_line": start_line,
+                "unit_order": unit_order,
+                "chapter_order": chapter_order,
+            })
+
+    resolved.sort(key=lambda item: (int(item["start_line"]), int(item["unit_order"]), int(item["chapter_order"])))
+    if len(resolved) < 2:
+        return None
+
+    units: List[Dict[str, Any]] = []
+    unit_lookup: Dict[str, Dict[str, Any]] = {}
+    for index, chapter in enumerate(resolved):
+        start = int(chapter["start_line"]) - 1
+        end = int(resolved[index + 1]["start_line"]) - 1 if index + 1 < len(resolved) else len(raw_lines)
+        content = "\n".join(raw_lines[start:end]).strip()
+        if not content:
+            continue
+        unit_title = chapter["unit_title"] or default_unit_title
+        if unit_title not in unit_lookup:
+            unit_lookup[unit_title] = {"title": unit_title, "chapters": []}
+            units.append(unit_lookup[unit_title])
+        unit_lookup[unit_title]["chapters"].append({
+            "title": chapter["title"],
+            "content": content,
+        })
+
+    total_chapters = sum(len(unit.get("chapters") or []) for unit in units)
+    if total_chapters < 2:
+        return None
+    return {"units": units, "strategy": strategy}
+
+
+def _extract_textbook_toc_structure(text: str, filename: str | None, lang: str) -> Dict[str, Any] | None:
+    raw_lines = str(text or "").splitlines()
+    if len(raw_lines) < 2 or not llm.has_client("llm"):
+        return None
+
+    toc_info = _extract_textbook_toc_candidates(raw_lines)
+    if toc_info is None:
+        return None
+
+    default_unit_title = _clean_heading_title(filename or "") or ("教材章节" if lang == "zh" else "Textbook")
+    toc_entries = toc_info.get("entries") or []
+    candidate_block = "\n".join(f"{item['line_number']}: {item['text']}" for item in toc_entries)
+    if lang == "zh":
+        system_prompt = (
+            "你是教材目录结构抽取器。"
+            "你只能根据提供的目录条目识别单元和章节，不得编造标题。"
+            "只返回严格 JSON，不要解释。"
+        )
+        user_prompt = (
+            "请从下面教材目录中识别课程结构，并返回 JSON。\n"
+            "返回格式：\n"
+            "{\"units\": [{\"title\": \"教材章节\", \"chapters\": [{\"title\": \"极限\", \"source_text\": \"Chapter 1 Limits ........ 1\"}]}]}\n"
+            "规则：\n"
+            "1. title 只保留单元名或章节名，不要带页码。\n"
+            "2. source_text 必须原样引用目录中的一行。\n"
+            "3. 忽略前言、致谢、附录、索引、参考文献等非正式课程章节。\n"
+            "4. 若目录只有章节没有单元，使用默认单元标题。\n"
+            f"5. 默认单元标题为 {json.dumps(default_unit_title, ensure_ascii=False)}。\n"
+            "6. 按目录原顺序输出，合并重复项。\n"
+            "7. 如果无法可靠识别至少 2 个章节，返回 {\"units\": []}。\n\n"
+            f"文件名：{filename or 'unknown'}\n"
+            f"目录起始行：{toc_info['anchor_line']}\n"
+            f"目录结束行：{toc_info['end_line']}\n"
+            "目录条目：\n"
+            f"{candidate_block}"
+        )
+    else:
+        system_prompt = (
+            "You extract textbook structure from a table of contents. "
+            "Use only the provided TOC lines and never invent titles. "
+            "Return strict JSON only."
+        )
+        user_prompt = (
+            "Identify the course structure from the textbook TOC below and return JSON.\n"
+            "Schema:\n"
+            "{\"units\": [{\"title\": \"Textbook\", \"chapters\": [{\"title\": \"Limits\", \"source_text\": \"Chapter 1 Limits ........ 1\"}]}]}\n"
+            "Rules:\n"
+            "1. title must keep only the unit or chapter name, without page numbers.\n"
+            "2. source_text must quote one TOC line exactly.\n"
+            "3. Ignore preface, acknowledgements, appendix, index, bibliography, and other non-course sections.\n"
+            "4. If the TOC has chapters but no units, use the default unit title.\n"
+            f"5. The default unit title is {json.dumps(default_unit_title)}.\n"
+            "6. Preserve TOC order and merge duplicates.\n"
+            "7. If you cannot reliably identify at least 2 chapters, return {\"units\": []}.\n\n"
+            f"Filename: {filename or 'unknown'}\n"
+            f"TOC anchor line: {toc_info['anchor_line']}\n"
+            f"TOC end line: {toc_info['end_line']}\n"
+            "TOC entries:\n"
+            f"{candidate_block}"
+        )
+
+    payload = _extract_json_object(
+        llm.chat(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.0,
+            max_tokens=1600,
+        )
+    )
+    if payload is None:
+        return None
+
+    return _structure_from_llm_payload(
+        payload,
+        raw_lines,
+        _collect_textbook_heading_candidates(raw_lines, start_line=int(toc_info["end_line"]) + 1),
+        default_unit_title,
+        min_line_number=int(toc_info["end_line"]) + 1,
+        strategy="toc_llm",
+    )
+
+
+def _extract_textbook_llm_structure(text: str, filename: str | None, lang: str) -> Dict[str, Any] | None:
+    raw_lines = str(text or "").splitlines()
+    if len(raw_lines) < 2 or not llm.has_client("llm"):
+        return None
+
+    toc_info = _extract_textbook_toc_candidates(raw_lines)
+    min_line_number = int(toc_info["end_line"]) + 1 if toc_info is not None else 1
+    candidates = _collect_textbook_heading_candidates(raw_lines, start_line=min_line_number)
+    if len(candidates) < 2:
+        return None
+
+    default_unit_title = _clean_heading_title(filename or "") or ("教材章节" if lang == "zh" else "Textbook")
+    candidate_block = "\n".join(f"{item['line_number']}: {item['text']}" for item in candidates)
+    if lang == "zh":
+        system_prompt = (
+            "你是教材章节结构抽取器。"
+            "你只能根据提供的候选行识别教材的单元/章节结构，禁止编造不存在的标题。"
+            "只返回严格 JSON，不要解释。"
+        )
+        user_prompt = (
+            "请从下面教材候选行中识别课程结构，并返回 JSON。\n"
+            "返回格式：\n"
+            "{\"units\": [{\"title\": \"教材章节\", \"chapters\": [{\"title\": \"极限\", \"start_line\": 12, \"heading_text\": \"Chapter 1 Limits\"}]}]}\n"
+            "规则：\n"
+            "1. start_line 必须使用候选行中的 1-based 行号。\n"
+            "2. heading_text 必须与候选行文本一致。\n"
+            "3. 忽略正文句子、页码、习题、页眉页脚、图表说明。\n"
+            "4. 合并重复标题，保持原顺序。\n"
+            f"5. 如果没有明确单元，使用默认单元标题 {json.dumps(default_unit_title, ensure_ascii=False)}。\n"
+            "6. 只保留适合作为课程章节的顶层主题；不要把普通小点或正文句子当成章节。\n"
+            "7. 如果无法可靠识别至少 2 个章节，返回 {\"units\": []}。\n\n"
+            f"文件名：{filename or 'unknown'}\n"
+            f"原文总行数：{len(raw_lines)}\n"
+            f"候选行数：{len(candidates)}\n"
+            "候选行：\n"
+            f"{candidate_block}"
+        )
+    else:
+        system_prompt = (
+            "You extract textbook chapter structure. "
+            "Use only the provided candidate lines and never invent headings. "
+            "Return strict JSON only, with no commentary."
+        )
+        user_prompt = (
+            "Identify the textbook structure from the candidate lines below and return JSON.\n"
+            "Schema:\n"
+            "{\"units\": [{\"title\": \"Textbook\", \"chapters\": [{\"title\": \"Limits\", \"start_line\": 12, \"heading_text\": \"Chapter 1 Limits\"}]}]}\n"
+            "Rules:\n"
+            "1. start_line must be a 1-based line number taken from the candidate list.\n"
+            "2. heading_text must match the candidate line text exactly.\n"
+            "3. Ignore body sentences, page numbers, exercises, headers/footers, and figure captions.\n"
+            "4. Merge duplicates and keep the original order.\n"
+            f"5. If there are no clear units, use the default unit title {json.dumps(default_unit_title)}.\n"
+            "6. Keep only chapter-level study topics; do not treat ordinary bullet points or prose as chapters.\n"
+            "7. If you cannot reliably identify at least 2 chapters, return {\"units\": []}.\n\n"
+            f"Filename: {filename or 'unknown'}\n"
+            f"Total source lines: {len(raw_lines)}\n"
+            f"Candidate count: {len(candidates)}\n"
+            "Candidate lines:\n"
+            f"{candidate_block}"
+        )
+
+    raw = llm.chat(
+        [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.0,
+        max_tokens=1600,
+    )
+    payload = _extract_json_object(raw)
+    if payload is None:
+        return None
+    return _structure_from_llm_payload(
+        payload,
+        raw_lines,
+        candidates,
+        default_unit_title,
+        min_line_number=min_line_number,
+        strategy="llm",
+    )
+
+
 def _extract_textbook_heading_structure(text: str, lang: str) -> Dict[str, Any] | None:
     raw_lines = str(text or "").splitlines()
     if not raw_lines:
@@ -1156,6 +1650,14 @@ def _extract_textbook_heading_structure(text: str, lang: str) -> Dict[str, Any] 
 
 def infer_textbook_structure(text: str, filename: str | None = None) -> Dict[str, Any]:
     lang = _detect_material_language(text)
+    parsed = _extract_textbook_toc_structure(text, filename, lang)
+    if parsed is not None:
+        return parsed
+
+    parsed = _extract_textbook_llm_structure(text, filename, lang)
+    if parsed is not None:
+        return parsed
+
     parsed = _extract_textbook_heading_structure(text, lang)
     if parsed is not None:
         return parsed
