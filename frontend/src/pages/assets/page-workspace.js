@@ -1,7 +1,8 @@
 document.addEventListener('DOMContentLoaded', async function () {
-  await window.RRApp.initPage('workspace');
+  const shellInfo = await window.RRApp.initPage('workspace');
 
   const guestSection = document.getElementById('workspace-guest');
+  const guestCounter = document.getElementById('workspace-guest-counter');
   const memberSection = document.getElementById('workspace-member');
   const courseGrid = document.getElementById('course-grid');
   const courseGridEmpty = document.getElementById('course-grid-empty');
@@ -33,6 +34,25 @@ document.addEventListener('DOMContentLoaded', async function () {
       value = value.replace('{' + name + '}', String(params[name]));
     });
     return value;
+  }
+
+  function formatCount(value) {
+    const locale = (document.documentElement.lang || '').toLowerCase().indexOf('en') === 0 ? 'en-US' : 'zh-CN';
+    return new Intl.NumberFormat(locale).format(Math.max(0, Number(value || 0)));
+  }
+
+  function renderGuestCounter(quota) {
+    if (!guestCounter) {
+      return;
+    }
+    const currentQuota = quota || (window.RRApp.getShellState().quota || null);
+    const total = currentQuota && currentQuota.site_generation_total != null
+      ? Number(currentQuota.site_generation_total)
+      : null;
+    const label = t('site_generation_count');
+    const display = Number.isFinite(total) ? formatCount(total) : '--';
+    guestCounter.textContent = label.replace('{n}', display);
+    guestCounter.classList.toggle('is-loading', !Number.isFinite(total));
   }
 
   function subjectCssKey(subjectCode) {
@@ -227,6 +247,11 @@ document.addEventListener('DOMContentLoaded', async function () {
       '</article>',
     ].join('');
   }
+
+  renderGuestCounter(shellInfo && shellInfo.quota ? shellInfo.quota : null);
+  document.addEventListener('rr:langchange', function () {
+    renderGuestCounter();
+  });
 
   function clearLegacyCourseState() {
     try {
