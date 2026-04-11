@@ -155,6 +155,58 @@ document.addEventListener('DOMContentLoaded', async function () {
     return new Intl.NumberFormat().format(Number(value || 0));
   }
 
+  function normalizeToastLabel(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function uniqueToastLabels(values) {
+    const seen = new Set();
+    return (values || []).map(normalizeToastLabel).filter(function (value) {
+      if (!value || seen.has(value)) {
+        return false;
+      }
+      seen.add(value);
+      return true;
+    });
+  }
+
+  function buildToastNamePreview(values, limit) {
+    const names = uniqueToastLabels(values);
+    if (!names.length) {
+      return '';
+    }
+    const visible = names.slice(0, Math.max(1, Number(limit || 0) || 2));
+    const preview = visible.join(' · ');
+    return names.length > visible.length ? preview + ' · +' + (names.length - visible.length) : preview;
+  }
+
+  function summarizeUploadedFiles(values) {
+    const names = uniqueToastLabels(values);
+    if (!names.length) {
+      return { message: '', detail: '' };
+    }
+    if (names.length === 1) {
+      return { message: names[0], detail: '' };
+    }
+    return {
+      message: interpolate('upload_success_multi_files', { n: formatCount(names.length) }),
+      detail: buildToastNamePreview(names, 2),
+    };
+  }
+
+  function showUploadSuccessPopup(options) {
+    const message = normalizeToastLabel(options && options.message);
+    const detail = normalizeToastLabel(options && options.detail);
+    const titleKey = options && options.titleKey ? options.titleKey : 'upload_done';
+    const messageKey = options && options.messageKey ? options.messageKey : '';
+    window.showToast('success', {
+      title: t(titleKey),
+      message: message || (messageKey ? t(messageKey) : ''),
+      detail: detail,
+      timeout: 4200,
+    });
+  }
+
   function buildInputPreview(selectedSources, draftValue) {
     const names = selectedSources.map(function (item) {
       return String(item.name || '').trim();
@@ -526,6 +578,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     const context = window.RRState.getSubjectContext();
+    const uploadedNames = [];
     setBusy(pickButton, true, t('uploading'), t('upload_pick_files'));
     try {
       for (const file of files) {
@@ -542,13 +595,20 @@ document.addEventListener('DOMContentLoaded', async function () {
           headers: window.RRApp.authHeaders(),
           body: formData,
         });
+        const sourceName = (data.meta && data.meta.filename) || file.name;
+        uploadedNames.push(sourceName);
         window.RRState.addUploadedSource({
           ...data,
-          name: (data.meta && data.meta.filename) || file.name,
+          name: sourceName,
         });
       }
       await refreshServerSources();
-      window.showToast('success', t('upload_done'));
+      const uploadSummary = summarizeUploadedFiles(uploadedNames);
+      showUploadSuccessPopup({
+        titleKey: 'upload_done',
+        message: uploadSummary.message,
+        detail: uploadSummary.detail,
+      });
     } catch (error) {
       window.showToast('error', error.message || t('operation_failed'));
     } finally {
@@ -590,7 +650,10 @@ document.addEventListener('DOMContentLoaded', async function () {
       structureDraft = cloneStructure(structure);
       renderStructureEditor();
       renderLists();
-      window.showToast('success', t('course_textbook_uploaded'));
+      showUploadSuccessPopup({
+        titleKey: 'course_textbook_success_title',
+        message: (structure && structure.textbook && structure.textbook.filename) || file.name,
+      });
     } catch (error) {
       window.showToast('error', error.message || t('operation_failed'));
     } finally {
@@ -650,13 +713,17 @@ document.addEventListener('DOMContentLoaded', async function () {
         headers: window.RRApp.authHeaders(),
         body: formData,
       });
+      const sourceName = (data.meta && data.meta.filename) || url;
       window.RRState.addUploadedSource({
         ...data,
-        name: (data.meta && data.meta.filename) || url,
+        name: sourceName,
       });
       urlInput.value = '';
       await refreshServerSources();
-      window.showToast('success', t('source_added'));
+      showUploadSuccessPopup({
+        titleKey: 'source_added',
+        message: sourceName,
+      });
     } catch (error) {
       window.showToast('error', error.message || t('operation_failed'));
     } finally {
@@ -668,7 +735,10 @@ document.addEventListener('DOMContentLoaded', async function () {
     window.RRState.setDraftText(draftText.value);
     renderDraftCount();
     if (notify) {
-      window.showToast('success', t('upload_draft_saved'));
+      showUploadSuccessPopup({
+        titleKey: 'upload_draft_saved',
+        messageKey: 'upload_success_current_draft',
+      });
     }
   }
 
