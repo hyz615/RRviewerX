@@ -83,11 +83,11 @@
     try {
       response = await window.apiFetch(path, { credentials: 'include', ...requestOptions }, config);
     } catch (fetchErr) {
-      if (fetchErr && fetchErr.name === 'AbortError') throw fetchErr;
+      if (window._isAbortLike && window._isAbortLike(fetchErr)) throw fetchErr;
       throw fetchErr;
     }
     const raw = await response.text().catch(function (bodyErr) {
-      if (bodyErr && bodyErr.name === 'AbortError') throw bodyErr;
+      if (window._isAbortLike && window._isAbortLike(bodyErr)) throw bodyErr;
       return '';
     });
 
@@ -694,7 +694,7 @@
         handleStreamChunk(buffer, handlers || {});
       }
     })().catch(function (err) {
-      if (err && err.name === 'AbortError') {
+      if (window._isAbortLike && window._isAbortLike(err)) {
         var wrapped = new Error('Request aborted');
         wrapped.name = 'AbortError';
         throw wrapped;

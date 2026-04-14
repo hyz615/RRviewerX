@@ -670,7 +670,7 @@ document.addEventListener('DOMContentLoaded', async function () {
       await window.RRApp.refreshShellStatus();
       window.showToast('success', t('generate_done'));
     } catch (error) {
-      var errMsg = (error && error.name === 'AbortError')
+      var errMsg = (window._isAbortLike && window._isAbortLike(error))
         ? (t('request_failed'))
         : (error.message || t('generate_failed'));
       window.showToast('error', errMsg);

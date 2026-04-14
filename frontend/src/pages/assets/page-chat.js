@@ -258,7 +258,11 @@ document.addEventListener('DOMContentLoaded', async function () {
         liveEntry.remove();
         chatStatus.textContent = '';
         sendButton.disabled = false;
-        window.showToast('error', fallbackError.message || streamError.message || window.RRApp.t('request_failed'));
+        window.showToast('error',
+          (window._isAbortLike && (window._isAbortLike(fallbackError) || window._isAbortLike(streamError)))
+            ? window.RRApp.t('request_failed')
+            : (fallbackError.message || streamError.message || window.RRApp.t('request_failed'))
+        );
         renderMessages();
         return;
       }

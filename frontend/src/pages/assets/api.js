@@ -11,11 +11,18 @@
     return `${location.protocol}//${location.host}`;
   }
   const BASE = computeBase();
+  function _isAbortLike(e){
+    if (!e) return false;
+    if (e.name === 'AbortError') return true;
+    var m = String(e.message || '').toLowerCase();
+    return m.indexOf('abort') !== -1 || m.indexOf('signal') !== -1;
+  }
   function _abortError(msg){
     var err = new Error(msg);
     err.name = 'AbortError';
     return err;
   }
+  window._isAbortLike = _isAbortLike;
   async function apiFetch(path, opts={}, {timeout=45000}={}){
     const ctrl = new AbortController();
     let timedOut = false;
@@ -25,7 +32,7 @@
       return res;
     } catch(e) {
       if (timedOut) throw _abortError('Request timed out');
-      if (e && e.name === 'AbortError') throw _abortError('Request aborted');
+      if (_isAbortLike(e)) throw _abortError('Request aborted');
       throw e;
     } finally {
       clearTimeout(id);
