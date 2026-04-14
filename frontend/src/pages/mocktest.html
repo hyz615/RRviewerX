@@ -63,7 +63,7 @@
           <div id="diff-warn" class="text-xs text-amber-600 mt-1 hidden"></div>
         </div>
         <div class="flex items-center gap-3">
-          <button id="btn-gen" class="bg-emerald-600 text-white px-4 py-2 rounded text-sm" data-i18n="mock_generate">生成测试</button>
+          <button id="btn-gen" type="button" class="bg-emerald-600 text-white px-4 py-2 rounded text-sm" data-i18n="mock_generate">生成测试</button>
           <span id="cfg-total" class="text-xs text-slate-500"></span>
         </div>
       </div>
@@ -72,14 +72,14 @@
       <div id="test-box" class="hidden">
         <div class="flex items-center justify-between mb-2">
           <div id="meta" class="text-xs text-slate-500"></div>
-          <button id="btn-regen" class="text-xs text-emerald-700 underline" data-i18n="mock_regenerate">重新配置</button>
+          <button id="btn-regen" type="button" class="text-xs text-emerald-700 underline" data-i18n="mock_regenerate">重新配置</button>
         </div>
         <div id="q-list" class="flex flex-col gap-4"></div>
         <div class="mt-4 flex flex-wrap items-center gap-3">
-          <button id="btn-submit" class="bg-emerald-600 text-white px-4 py-2 rounded text-sm" data-i18n="mock_submit">提交评分</button>
-          <button id="btn-export-md" class="border text-slate-700 px-3 py-2 rounded text-sm" data-i18n="mock_export_md">导出 .md</button>
-          <button id="btn-export-txt" class="border text-slate-700 px-3 py-2 rounded text-sm" data-i18n="mock_export_txt">导出 .txt</button>
-          <button id="btn-print" class="border text-slate-700 px-3 py-2 rounded text-sm" data-i18n="mock_export_print">打印 / PDF</button>
+          <button id="btn-submit" type="button" class="bg-emerald-600 text-white px-4 py-2 rounded text-sm" data-i18n="mock_submit">提交评分</button>
+          <button id="btn-export-md" type="button" class="border text-slate-700 px-3 py-2 rounded text-sm" data-i18n="mock_export_md">导出 .md</button>
+          <button id="btn-export-txt" type="button" class="border text-slate-700 px-3 py-2 rounded text-sm" data-i18n="mock_export_txt">导出 .txt</button>
+          <button id="btn-print" type="button" class="border text-slate-700 px-3 py-2 rounded text-sm" data-i18n="mock_export_print">打印 / PDF</button>
           <div id="score" class="text-sm text-slate-700"></div>
         </div>
       </div>
@@ -94,6 +94,20 @@
       function t(k){ return window.__i18n__?__i18n__.t(k):k; }
 
       const lang = qs('lang') || 'zh';
+      const submitButton = document.getElementById('btn-submit');
+      let scoringInFlight = false;
+
+      function setButtonBusy(button, busy, busyLabel, idleLabel){
+        if(!button) return;
+        button.disabled = !!busy;
+        button.classList.toggle('btn-loading', !!busy);
+        button.textContent = busy ? busyLabel : idleLabel;
+      }
+
+      function clearExistingReasons(scope){
+        if(!scope) return;
+        scope.querySelectorAll('[data-role="score-reason"]').forEach(function(node){ node.remove(); });
+      }
 
       // Total & diff-warn display
       function getTypeCounts(){
@@ -179,6 +193,8 @@
         document.getElementById('test-box').classList.add('hidden');
         document.getElementById('config-panel').classList.remove('hidden');
         document.getElementById('score').textContent = '';
+        setButtonBusy(submitButton, false, t('mock_scoring'), t('mock_submit'));
+        scoringInFlight = false;
       });
 
       async function loadTest(){
@@ -198,6 +214,8 @@
         document.getElementById('test-box').classList.add('hidden');
         document.getElementById('loading').classList.remove('hidden');
         document.getElementById('score').textContent = '';
+        setButtonBusy(submitButton, false, t('mock_scoring'), t('mock_submit'));
+        scoringInFlight = false;
 
         const body = { text: reviewText || undefined, lang, type_counts: typeCounts, diff_counts: diffCounts };
         if(reviewSheetId) body.review_sheet_id = Number(reviewSheetId) || undefined;
@@ -270,10 +288,16 @@
           wrap.appendChild(exp);
           list.appendChild(wrap);
         });
-        document.getElementById('btn-submit').onclick = ()=> score(items);
       }
 
       async function score(items){
+        if(scoringInFlight || !Array.isArray(items) || !items.length){
+          return;
+        }
+        scoringInFlight = true;
+        setButtonBusy(submitButton, true, t('mock_scoring'), t('mock_submit'));
+        const scoreEl = document.getElementById('score');
+        scoreEl.textContent = t('mock_scoring');
         const answers = {};
         items.forEach(q=>{
           if(q.type==='single' || q.type==='tf'){
@@ -301,26 +325,33 @@
               || document.querySelector(`input[name="q_${q.id}"]`)?.closest('.border');
             const exp = row ? row.querySelector('[data-role="explain"]') : null;
             const rr = map.get(q.id);
+            if(row){
+              row.classList.remove('border-red-300');
+              row.classList.remove('border-emerald-300');
+            }
             if(rr && rr.correct){ correct++; if(row){ row.classList.remove('border-red-300'); row.classList.add('border-emerald-300'); } }
             else if(row){ row.classList.remove('border-emerald-300'); row.classList.add('border-red-300'); }
             if(exp){
+              clearExistingReasons(exp);
               exp.classList.remove('hidden');
               if(rr && rr.reason){
                 const reasonEl = document.createElement('div'); reasonEl.className='mt-1 text-[11px] text-slate-500';
+                reasonEl.dataset.role = 'score-reason';
                 reasonEl.textContent = rr.reason;
                 exp.appendChild(reasonEl);
               }
             }
           });
-          const s = document.getElementById('score');
-          s.textContent = `${t('mock_score')}: ${correct}/${items.length}`;
+          scoreEl.textContent = `${t('mock_score')}: ${correct}/${items.length}`;
         }catch(e){
-          const s = document.getElementById('score');
           if(window._isAbortLike && window._isAbortLike(e)){
-            s.textContent = lang.startsWith('en') ? 'Scoring timed out' : '评分超时';
+            scoreEl.textContent = t('mock_score_timeout');
           } else {
-            s.textContent = lang.startsWith('en') ? 'Scoring failed' : '评分失败';
+            scoreEl.textContent = t('mock_score_failed');
           }
+        } finally {
+          scoringInFlight = false;
+          setButtonBusy(submitButton, false, t('mock_scoring'), t('mock_submit'));
         }
       }
 
@@ -383,6 +414,9 @@
       document.getElementById('btn-export-md').addEventListener('click', function(){
         const txt = buildExportText('md');
         if(txt) downloadFile('mocktest.md', txt);
+      });
+      submitButton.addEventListener('click', function(){
+        score(window.__mockItems || []);
       });
       document.getElementById('btn-export-txt').addEventListener('click', function(){
         const txt = buildExportText('txt');
