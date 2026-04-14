@@ -690,7 +690,7 @@
 
     return {
       cancel: function () {
-        controller.abort();
+        controller.abort('cancelled');
       },
       done: promise,
     };

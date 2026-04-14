@@ -659,7 +659,7 @@ document.addEventListener('DOMContentLoaded', async function () {
           method: 'POST',
           headers: window.RRApp.authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify(payload),
-        });
+        }, { timeout: 180000 });
         setProgress(t('generate_done'), 100);
       }
 
