@@ -134,12 +134,17 @@
         document.getElementById(id).addEventListener('input', updateTotal);
       });
 
-      // Review text
+      // Review text – read after deferred scripts (app-state.js) have run
       let reviewText = '';
-      try{ reviewText = sessionStorage.getItem('review_text') || ''; }catch(_){ }
 
       document.addEventListener('DOMContentLoaded', function(){
         updateTotal();
+        try{
+          const stateReview = window.RRState && window.RRState.getCurrentReview && window.RRState.getCurrentReview();
+          reviewText = (stateReview && stateReview.text) || sessionStorage.getItem('review_text') || '';
+        }catch(_){
+          try{ reviewText = sessionStorage.getItem('review_text') || ''; }catch(__){ }
+        }
         if(!(reviewText||'').trim()){
           document.getElementById('config-panel').classList.add('hidden');
           document.getElementById('empty').classList.remove('hidden');
@@ -154,6 +159,13 @@
       });
 
       async function loadTest(){
+        // Re-read in case state was updated after DOMContentLoaded
+        if(!(reviewText||'').trim()){
+          try{
+            const sr = window.RRState && window.RRState.getCurrentReview && window.RRState.getCurrentReview();
+            reviewText = (sr && sr.text) || sessionStorage.getItem('review_text') || '';
+          }catch(_){}
+        }
         if(!(reviewText||'').trim()){ document.getElementById('empty').classList.remove('hidden'); return; }
         const typeCounts = getTypeCounts();
         const diffCounts = getDiffCounts();
