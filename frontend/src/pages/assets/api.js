@@ -13,7 +13,7 @@
   const BASE = computeBase();
   async function apiFetch(path, opts={}, {timeout=45000}={}){
     const ctrl = new AbortController();
-    const id = setTimeout(()=>ctrl.abort(), timeout);
+    const id = timeout > 0 ? setTimeout(()=>ctrl.abort('Request timed out'), timeout) : 0;
     try{
       const res = await fetch(BASE + path, { credentials: 'include', ...opts, signal: ctrl.signal });
       return res;

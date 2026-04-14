@@ -175,6 +175,11 @@
         }catch(e){
           document.getElementById('loading').classList.add('hidden');
           document.getElementById('config-panel').classList.remove('hidden');
+          if(e && e.name === 'AbortError'){
+            window.showToast && showToast('error', lang.startsWith('en') ? 'Request timed out — try fewer questions' : '请求超时 — 请尝试减少题目数量');
+          } else {
+            window.showToast && showToast('error', lang.startsWith('en') ? 'Generation failed' : '生成失败');
+          }
         }
       }
 
@@ -270,7 +275,12 @@
           const s = document.getElementById('score');
           s.textContent = `${t('mock_score')}: ${correct}/${items.length}`;
         }catch(e){
-          const s = document.getElementById('score'); s.textContent = 'score failed';
+          const s = document.getElementById('score');
+          if(e && e.name === 'AbortError'){
+            s.textContent = lang.startsWith('en') ? 'Scoring timed out' : '评分超时';
+          } else {
+            s.textContent = lang.startsWith('en') ? 'Scoring failed' : '评分失败';
+          }
         }
       }
 
