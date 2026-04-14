@@ -144,3 +144,34 @@ def test_stream_generate_updates_monthly_usage_and_site_total(monkeypatch):
 
     assert after["used"] == before["used"] + 1
     assert after["site_generation_total"] >= before["site_generation_total"] + 1
+
+
+def test_signed_in_generate_returns_text_when_persistence_fails(monkeypatch):
+    headers = {"Authorization": f"Bearer {sign_jwt('local:97031', 'local')}"}
+
+    def fake_generate_review(text: str, fmt: str, lang: str = "zh", length: str = "short"):
+        return {"text": "# Review"}
+
+    def fail_persist(session, user_key=None):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(generate_route, "generate_review", fake_generate_review)
+    monkeypatch.setattr(generate_route, "record_review_generation", fail_persist)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/generate",
+            headers=headers,
+            json={
+                "text": "member review material member review material member review material",
+                "format": "review_sheet_pro",
+                "length": "short",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["id"] is None
+    assert payload["text"] == "# Review"
+    assert payload["save_warning"] == "Generated successfully, but saving the result failed."

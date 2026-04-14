@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 import threading
 from fastapi import APIRouter, Depends, Response
@@ -25,6 +26,8 @@ from typing import List
 
 
 router = APIRouter()
+logger = logging.getLogger("rrviewer.generate")
+_SAVE_WARNING_MESSAGE = "Generated successfully, but saving the result failed."
 
 
 def _clean_optional_text(value: str | None) -> str | None:
@@ -258,6 +261,58 @@ def _check_content_sufficiency(text: str, lang: str = "zh") -> str | None:
     return None
 
 
+def _persist_generated_review(
+    session: Session,
+    *,
+    user_key: str | None,
+    owner_id: int | None,
+    used_source_id: int | None,
+    fmt: str,
+    text_out: str,
+    subject_code: str | None,
+    course_name: str | None,
+    exam_type: str | None,
+    exam_name: str | None,
+    selected_chapter_ids: list[int],
+    selected_chapter_labels: list[str],
+    generation_mode: str,
+    textbook_file_id: int | None,
+    used_textbook: bool,
+) -> tuple[int | None, str | None]:
+    review_id = None
+    try:
+        record_review_generation(session, user_key)
+
+        if owner_id is not None:
+            rs = ReviewSheet(
+                user_id=owner_id,
+                source_id=used_source_id,
+                kind=fmt,
+                content=text_out,
+                subject_code=subject_code,
+                course_name=course_name,
+                exam_type=exam_type,
+                exam_name=exam_name,
+                selected_chapter_ids=dump_json_list(selected_chapter_ids),
+                selected_chapter_labels=dump_json_list(selected_chapter_labels),
+                generation_mode=generation_mode,
+                textbook_file_id=textbook_file_id if used_textbook else None,
+            )
+            session.add(rs)
+            session.flush()
+            review_id = rs.id
+
+        session.commit()
+        return review_id, None
+    except Exception:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        logger.exception("Failed to persist generated review result")
+        return None, _SAVE_WARNING_MESSAGE
+
+
 class GenerateRequest(BaseModel):
     source_id: str | None = None
     source_ids: List[str] | None = None
@@ -349,29 +404,24 @@ async def generate(
     else:
         text_out = header + json.dumps(result, ensure_ascii=False)
 
-    record_review_generation(session, user_key)
-
-    review_id = None
-    if owner_id is not None:
-        rs = ReviewSheet(
-            user_id=owner_id,
-            source_id=used_source_id,
-            kind=fmt,
-            content=text_out,
-            subject_code=subject_code,
-            course_name=course_name,
-            exam_type=exam_type,
-            exam_name=exam_name,
-            selected_chapter_ids=dump_json_list(selected_chapter_ids),
-            selected_chapter_labels=dump_json_list(selected_chapter_labels),
-            generation_mode=generation_mode,
-            textbook_file_id=textbook_file_id if used_textbook else None,
-        )
-        session.add(rs)
-        session.flush()
-        review_id = rs.id
-    session.commit()
-    return {
+    review_id, save_warning = _persist_generated_review(
+        session,
+        user_key=user_key,
+        owner_id=owner_id,
+        used_source_id=used_source_id,
+        fmt=fmt,
+        text_out=text_out,
+        subject_code=subject_code,
+        course_name=course_name,
+        exam_type=exam_type,
+        exam_name=exam_name,
+        selected_chapter_ids=selected_chapter_ids,
+        selected_chapter_labels=selected_chapter_labels,
+        generation_mode=generation_mode,
+        textbook_file_id=textbook_file_id,
+        used_textbook=used_textbook,
+    )
+    response = {
         "ok": True,
         "id": review_id,
         "text": text_out,
@@ -381,6 +431,9 @@ async def generate(
         "generation_mode": generation_mode,
         "textbook_file_id": textbook_file_id if used_textbook else None,
     }
+    if save_warning:
+        response["save_warning"] = save_warning
+    return response
 
 
 def _sse_event(name: str, data: str) -> bytes:
