@@ -134,17 +134,36 @@
 
       // Review text – read after deferred scripts (app-state.js) have run
       let reviewText = '';
+      let reviewSheetId = null;
+
+      function _readReviewFromState() {
+        try {
+          const sr = window.RRState && window.RRState.getCurrentReview && window.RRState.getCurrentReview();
+          if (sr) {
+            if (sr.id) reviewSheetId = sr.id;
+            if (sr.text) return sr.text;
+          }
+        } catch (_) {}
+        try { return sessionStorage.getItem('review_text') || ''; } catch (_) { return ''; }
+      }
 
       document.addEventListener('DOMContentLoaded', async function(){
         // Init shell (must be inside DOMContentLoaded so deferred app-shell.js is ready)
         try{ if(window.RRApp) await window.RRApp.initPage('mocktest'); }catch(_){}
 
         // Read review text from app-state bucket or legacy sessionStorage key
-        try{
-          const stateReview = window.RRState && window.RRState.getCurrentReview && window.RRState.getCurrentReview();
-          reviewText = (stateReview && stateReview.text) || sessionStorage.getItem('review_text') || '';
-        }catch(_){
-          try{ reviewText = sessionStorage.getItem('review_text') || ''; }catch(__){ }
+        reviewText = _readReviewFromState();
+
+        // If text is empty but we have a review sheet ID, fetch from backend
+        if (!(reviewText||'').trim() && reviewSheetId) {
+          try {
+            const r = await apiFetch('/history/' + encodeURIComponent(reviewSheetId), { headers: authHeaders() });
+            const j = await r.json();
+            if (j && j.ok && j.text) {
+              reviewText = j.text;
+              try { sessionStorage.setItem('review_text', reviewText); } catch (_) {}
+            }
+          } catch (_) {}
         }
 
         if((reviewText||'').trim()){
@@ -165,12 +184,11 @@
       async function loadTest(){
         // Re-read in case state was updated after DOMContentLoaded
         if(!(reviewText||'').trim()){
-          try{
-            const sr = window.RRState && window.RRState.getCurrentReview && window.RRState.getCurrentReview();
-            reviewText = (sr && sr.text) || sessionStorage.getItem('review_text') || '';
-          }catch(_){}
+          reviewText = _readReviewFromState();
         }
-        if(!(reviewText||'').trim()){ document.getElementById('empty').classList.remove('hidden'); return; }
+        if(!(reviewText||'').trim() && !reviewSheetId){
+          document.getElementById('empty').classList.remove('hidden'); return;
+        }
         const typeCounts = getTypeCounts();
         const diffCounts = getDiffCounts();
         const total = typeCounts.single + typeCounts.tf + typeCounts.fill + typeCounts.short;
@@ -181,12 +199,18 @@
         document.getElementById('loading').classList.remove('hidden');
         document.getElementById('score').textContent = '';
 
-        const body = { text: reviewText, lang, type_counts: typeCounts, diff_counts: diffCounts };
+        const body = { text: reviewText || undefined, lang, type_counts: typeCounts, diff_counts: diffCounts };
+        if(reviewSheetId) body.review_sheet_id = Number(reviewSheetId) || undefined;
         try{
           const r = await apiFetch('/test/generate', { method:'POST', headers: { ...authHeaders({ 'Content-Type':'application/json' }) }, body: JSON.stringify(body) }, {timeout: 180000});
           const j = await r.json();
           document.getElementById('loading').classList.add('hidden');
-          if(!(j && j.ok)) { document.getElementById('config-panel').classList.remove('hidden'); document.getElementById('empty').classList.remove('hidden'); return; }
+          if(!(j && j.ok)) {
+            document.getElementById('config-panel').classList.remove('hidden');
+            const errMsg = (j && j.error) || (lang.startsWith('en') ? 'Generation failed' : '生成失败');
+            window.showToast && showToast('error', errMsg);
+            return;
+          }
           renderTest(j.items, j.meta||{});
         }catch(e){
           document.getElementById('loading').classList.add('hidden');
