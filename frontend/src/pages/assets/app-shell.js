@@ -79,8 +79,15 @@
   async function fetchJSON(path, options, extra) {
     const requestOptions = { ...(options || {}) };
     const config = { ...(extra || {}) };
-    const response = await window.apiFetch(path, { credentials: 'include', ...requestOptions }, config);
-    const raw = await response.text().catch(function () {
+    var response;
+    try {
+      response = await window.apiFetch(path, { credentials: 'include', ...requestOptions }, config);
+    } catch (fetchErr) {
+      if (fetchErr && fetchErr.name === 'AbortError') throw fetchErr;
+      throw fetchErr;
+    }
+    const raw = await response.text().catch(function (bodyErr) {
+      if (bodyErr && bodyErr.name === 'AbortError') throw bodyErr;
       return '';
     });
 
@@ -686,7 +693,14 @@
       if (buffer.trim()) {
         handleStreamChunk(buffer, handlers || {});
       }
-    })();
+    })().catch(function (err) {
+      if (err && err.name === 'AbortError') {
+        var wrapped = new Error('Request aborted');
+        wrapped.name = 'AbortError';
+        throw wrapped;
+      }
+      throw err;
+    });
 
     return {
       cancel: function () {

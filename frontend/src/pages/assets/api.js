@@ -11,6 +11,11 @@
     return `${location.protocol}//${location.host}`;
   }
   const BASE = computeBase();
+  function _abortError(msg){
+    var err = new Error(msg);
+    err.name = 'AbortError';
+    return err;
+  }
   async function apiFetch(path, opts={}, {timeout=45000}={}){
     const ctrl = new AbortController();
     let timedOut = false;
@@ -19,7 +24,8 @@
       const res = await fetch(BASE + path, { credentials: 'include', ...opts, signal: ctrl.signal });
       return res;
     } catch(e) {
-      if (timedOut) throw new DOMException('Request timed out', 'AbortError');
+      if (timedOut) throw _abortError('Request timed out');
+      if (e && e.name === 'AbortError') throw _abortError('Request aborted');
       throw e;
     } finally {
       clearTimeout(id);

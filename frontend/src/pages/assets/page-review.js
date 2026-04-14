@@ -670,8 +670,11 @@ document.addEventListener('DOMContentLoaded', async function () {
       await window.RRApp.refreshShellStatus();
       window.showToast('success', t('generate_done'));
     } catch (error) {
-      window.showToast('error', error.message || t('generate_failed'));
-      setProgress(error.message || t('generate_failed'), 100);
+      var errMsg = (error && error.name === 'AbortError')
+        ? (t('request_failed'))
+        : (error.message || t('generate_failed'));
+      window.showToast('error', errMsg);
+      setProgress(errMsg, 100);
     } finally {
       setGenerateBusy(false);
     }
