@@ -3,6 +3,7 @@
     { id: 'workspace', href: 'workspace.html', label: 'nav_home' },
     { id: 'upload', href: 'upload.html', label: 'nav_upload' },
     { id: 'review', href: 'review.html', label: 'nav_review' },
+    { id: 'mocktest', href: 'mocktest.html', label: 'nav_mocktest' },
     { id: 'chat', href: 'chat.html', label: 'nav_chat' },
     { id: 'history', href: 'history.html', label: 'nav_history' },
   ];
@@ -277,10 +278,11 @@
 
     const context = window.RRState ? window.RRState.getSubjectContext() : null;
     const INNER_TABS = [
-      { id: 'upload',  href: 'upload.html',  labelKey: 'course_tab_materials' },
-      { id: 'review',  href: 'review.html',  labelKey: 'course_tab_generate' },
-      { id: 'chat',    href: 'chat.html',    labelKey: 'course_tab_chat' },
-      { id: 'history', href: 'history.html', labelKey: 'course_tab_history' },
+      { id: 'upload',   href: 'upload.html',   labelKey: 'course_tab_materials' },
+      { id: 'review',   href: 'review.html',   labelKey: 'course_tab_generate' },
+      { id: 'mocktest', href: 'mocktest.html',  labelKey: 'course_tab_test' },
+      { id: 'chat',     href: 'chat.html',     labelKey: 'course_tab_chat' },
+      { id: 'history',  href: 'history.html',  labelKey: 'course_tab_history' },
     ];
 
     if (!context || !context.subjectCode) {
@@ -418,7 +420,7 @@
       window.__i18n__.applyI18n(document);
     }
     // Render course header for inner pages (not workspace)
-    const innerPages = ['upload', 'review', 'chat', 'history'];
+    const innerPages = ['upload', 'review', 'chat', 'history', 'mocktest'];
     if (innerPages.indexOf(pageId) !== -1) {
       renderCourseHeader(pageId);
     }

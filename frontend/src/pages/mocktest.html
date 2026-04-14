@@ -10,13 +10,14 @@
     <script src="assets/i18n.js?v=20260413" defer></script>
     <script src="assets/api.js" defer></script>
     <script src="assets/toast.js" defer></script>
+    <script src="assets/app-shell.js?v=20260413" defer></script>
+    <script src="assets/app-state.js?v=20260413" defer></script>
   </head>
   <body class="bg-slate-50">
+    <div id="app-shell-top"></div>
+    <div id="course-header"></div>
     <div class="max-w-5xl mx-auto p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h1 class="text-xl font-semibold" data-i18n="mock_test">模拟测试</h1>
-        <a href="workspace.html" class="text-xs underline text-slate-600">← Back</a>
-      </div>
+      <h1 class="text-xl font-semibold mb-4" data-i18n="mock_test">模拟测试</h1>
 
       <!-- Config panel -->
       <div id="config-panel" class="bg-white rounded border p-4 mb-4">
@@ -69,7 +70,10 @@
 
       <div id="loading" class="hidden text-sm text-slate-600 mb-3"><span class="spinner inline-block mr-2"></span><span data-i18n="mock_loading">正在生成测试…</span></div>
       <div id="test-box" class="hidden">
-        <div id="meta" class="text-xs text-slate-500 mb-2"></div>
+        <div class="flex items-center justify-between mb-2">
+          <div id="meta" class="text-xs text-slate-500"></div>
+          <button id="btn-regen" class="text-xs text-emerald-700 underline" data-i18n="mock_regenerate">重新配置</button>
+        </div>
         <div id="q-list" class="flex flex-col gap-4"></div>
         <div class="mt-4 flex flex-wrap items-center gap-3">
           <button id="btn-submit" class="bg-emerald-600 text-white px-4 py-2 rounded text-sm" data-i18n="mock_submit">提交评分</button>
@@ -81,8 +85,12 @@
       </div>
       <div id="empty" class="hidden text-sm text-slate-600" data-i18n="mock_empty">暂无复习单内容，无法生成测试</div>
     </div>
+    <div id="app-shell-bottom"></div>
 
   <script>
+      // Init shell
+      (async function(){ if(window.RRApp) await window.RRApp.initPage('mocktest'); })();
+
       function authHeaders(base={}){ const h = {...base}; const t = localStorage.getItem('token'); if(t) h['Authorization'] = 'Bearer '+t; return h; }
       function qs(name){ const u=new URLSearchParams(location.search); return u.get(name)||''; }
       function t(k){ return window.__i18n__?__i18n__.t(k):k; }
@@ -139,6 +147,11 @@
       });
 
       document.getElementById('btn-gen').addEventListener('click', function(){ loadTest(); });
+      document.getElementById('btn-regen').addEventListener('click', function(){
+        document.getElementById('test-box').classList.add('hidden');
+        document.getElementById('config-panel').classList.remove('hidden');
+        document.getElementById('score').textContent = '';
+      });
 
       async function loadTest(){
         if(!(reviewText||'').trim()){ document.getElementById('empty').classList.remove('hidden'); return; }
