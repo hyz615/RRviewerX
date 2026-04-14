@@ -20,7 +20,7 @@
       <h1 class="text-xl font-semibold mb-4" data-i18n="mock_test">模拟测试</h1>
 
       <!-- Config panel -->
-      <div id="config-panel" class="bg-white rounded border p-4 mb-4">
+      <div id="config-panel" class="bg-white rounded border p-4 mb-4 hidden">
         <div class="text-sm font-medium mb-3" data-i18n="mock_config_title">测试配置</div>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
           <label class="flex flex-col gap-1 text-xs text-slate-600">
@@ -137,17 +137,20 @@
 
       document.addEventListener('DOMContentLoaded', async function(){
         // Init shell (must be inside DOMContentLoaded so deferred app-shell.js is ready)
-        if(window.RRApp) await window.RRApp.initPage('mocktest');
-        updateTotal();
+        try{ if(window.RRApp) await window.RRApp.initPage('mocktest'); }catch(_){}
 
+        // Read review text from app-state bucket or legacy sessionStorage key
         try{
           const stateReview = window.RRState && window.RRState.getCurrentReview && window.RRState.getCurrentReview();
           reviewText = (stateReview && stateReview.text) || sessionStorage.getItem('review_text') || '';
         }catch(_){
           try{ reviewText = sessionStorage.getItem('review_text') || ''; }catch(__){ }
         }
-        if(!(reviewText||'').trim()){
-          document.getElementById('config-panel').classList.add('hidden');
+
+        if((reviewText||'').trim()){
+          document.getElementById('config-panel').classList.remove('hidden');
+          updateTotal();
+        } else {
           document.getElementById('need-review').classList.remove('hidden');
         }
       });
