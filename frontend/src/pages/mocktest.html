@@ -84,13 +84,11 @@
         </div>
       </div>
       <div id="empty" class="hidden text-sm text-slate-600" data-i18n="mock_empty">暂无复习单内容，无法生成测试</div>
+      <div id="need-review" class="hidden text-sm text-slate-600"><span data-i18n="mock_need_review_prefix">请先</span><a href="review.html" class="text-emerald-700 underline" data-i18n="mock_need_review_link">生成复习单</a><span data-i18n="mock_need_review_suffix">，再进行模拟测试</span></div>
     </div>
     <div id="app-shell-bottom"></div>
 
   <script>
-      // Init shell
-      (async function(){ if(window.RRApp) await window.RRApp.initPage('mocktest'); })();
-
       function authHeaders(base={}){ const h = {...base}; const t = localStorage.getItem('token'); if(t) h['Authorization'] = 'Bearer '+t; return h; }
       function qs(name){ const u=new URLSearchParams(location.search); return u.get(name)||''; }
       function t(k){ return window.__i18n__?__i18n__.t(k):k; }
@@ -137,8 +135,11 @@
       // Review text – read after deferred scripts (app-state.js) have run
       let reviewText = '';
 
-      document.addEventListener('DOMContentLoaded', function(){
+      document.addEventListener('DOMContentLoaded', async function(){
+        // Init shell (must be inside DOMContentLoaded so deferred app-shell.js is ready)
+        if(window.RRApp) await window.RRApp.initPage('mocktest');
         updateTotal();
+
         try{
           const stateReview = window.RRState && window.RRState.getCurrentReview && window.RRState.getCurrentReview();
           reviewText = (stateReview && stateReview.text) || sessionStorage.getItem('review_text') || '';
@@ -147,7 +148,7 @@
         }
         if(!(reviewText||'').trim()){
           document.getElementById('config-panel').classList.add('hidden');
-          document.getElementById('empty').classList.remove('hidden');
+          document.getElementById('need-review').classList.remove('hidden');
         }
       });
 
