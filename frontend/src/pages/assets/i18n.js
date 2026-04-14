@@ -198,7 +198,7 @@
       uploading: '上传中...',
       upload_done: '上传完成',
       source_added: '已加入本次会话',
-      generating: '生成中...',
+      generating: '生成中...请耐心等待',
       asking: '提问中...',
       file_requirements_title: '文件要求',
       file_req_types: '支持 PDF / DOCX / TXT / CSV / XLSX / PPTX / JPG / PNG',
