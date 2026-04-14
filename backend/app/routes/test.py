@@ -220,13 +220,18 @@ def generate_test(payload: TestGenerateRequest, _ctx=Depends(require_auth_or_tri
     ], temperature=0.4)
 
     # Parse JSON
-    import json
+    import json, re
     data: Dict[str, Any] = {}
+    raw = content.strip()
+    # Strip markdown code fences (```json ... ``` or ``` ... ```)
+    fence_match = re.search(r"```(?:json)?\s*\n?([\s\S]*?)```", raw)
+    if fence_match:
+        raw = fence_match.group(1).strip()
     try:
-        data = json.loads(content)
+        data = json.loads(raw)
     except Exception:
-        import re
-        m = re.search(r"\{[\s\S]*\}$", content.strip())
+        # Try to extract outermost JSON object
+        m = re.search(r"\{[\s\S]*\}", raw)
         if m:
             try:
                 data = json.loads(m.group(0))
@@ -396,10 +401,14 @@ def score_test(payload: ScoreRequest):
         # Parse JSON
         import json, re
         data = {}
+        raw_reply = reply.strip()
+        fence = re.search(r"```(?:json)?\s*\n?([\s\S]*?)```", raw_reply)
+        if fence:
+            raw_reply = fence.group(1).strip()
         try:
-            data = json.loads(reply)
+            data = json.loads(raw_reply)
         except Exception:
-            m = re.search(r"\{[\s\S]*\}$", reply.strip())
+            m = re.search(r"\{[\s\S]*\}", raw_reply)
             if m:
                 try:
                     data = json.loads(m.group(0))
