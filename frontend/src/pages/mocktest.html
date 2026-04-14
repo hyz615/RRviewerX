@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RRviewer - 模拟测试</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="assets/styles.css?v=20250912" />
+    <link rel="stylesheet" href="assets/styles.css?v=20260413" />
     <script>window.I18N_NO_FLOAT = true;</script>
-    <script src="assets/i18n.js?v=20250920" defer></script>
+    <script src="assets/i18n.js?v=20260413" defer></script>
     <script src="assets/api.js" defer></script>
     <script src="assets/toast.js" defer></script>
   </head>
@@ -17,12 +17,65 @@
         <h1 class="text-xl font-semibold" data-i18n="mock_test">模拟测试</h1>
         <a href="workspace.html" class="text-xs underline text-slate-600">← Back</a>
       </div>
-      <div id="loading" class="text-sm text-slate-600 mb-3"><span class="spinner inline-block mr-2"></span><span data-i18n="mock_loading">正在生成测试…</span></div>
+
+      <!-- Config panel -->
+      <div id="config-panel" class="bg-white rounded border p-4 mb-4">
+        <div class="text-sm font-medium mb-3" data-i18n="mock_config_title">测试配置</div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+          <label class="flex flex-col gap-1 text-xs text-slate-600">
+            <span data-i18n="mock_type_single">单选题</span>
+            <input id="cfg-single" type="number" min="0" max="40" value="5" class="border rounded px-2 py-1 text-sm w-full" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-slate-600">
+            <span data-i18n="mock_type_tf">判断题</span>
+            <input id="cfg-tf" type="number" min="0" max="40" value="3" class="border rounded px-2 py-1 text-sm w-full" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-slate-600">
+            <span data-i18n="mock_type_fill">填空题</span>
+            <input id="cfg-fill" type="number" min="0" max="40" value="2" class="border rounded px-2 py-1 text-sm w-full" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-slate-600">
+            <span data-i18n="mock_type_short">解答题</span>
+            <input id="cfg-short" type="number" min="0" max="40" value="2" class="border rounded px-2 py-1 text-sm w-full" />
+          </label>
+        </div>
+        <div class="mb-3">
+          <div class="text-xs text-slate-600 mb-1" data-i18n="mock_difficulty">难度分配</div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <label class="flex flex-col gap-1 text-xs text-slate-600">
+              <span data-i18n="mock_diff_easy">简单</span>
+              <input id="cfg-easy" type="number" min="0" max="80" value="4" class="border rounded px-2 py-1 text-sm w-full" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-slate-600">
+              <span data-i18n="mock_diff_medium">中等</span>
+              <input id="cfg-medium" type="number" min="0" max="80" value="4" class="border rounded px-2 py-1 text-sm w-full" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-slate-600">
+              <span data-i18n="mock_diff_hard">困难</span>
+              <input id="cfg-hard" type="number" min="0" max="80" value="3" class="border rounded px-2 py-1 text-sm w-full" />
+            </label>
+            <label class="flex flex-col gap-1 text-xs text-slate-600">
+              <span data-i18n="mock_diff_competition">竞赛</span>
+              <input id="cfg-competition" type="number" min="0" max="80" value="1" class="border rounded px-2 py-1 text-sm w-full" />
+            </label>
+          </div>
+          <div id="diff-warn" class="text-xs text-amber-600 mt-1 hidden"></div>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="btn-gen" class="bg-emerald-600 text-white px-4 py-2 rounded text-sm" data-i18n="mock_generate">生成测试</button>
+          <span id="cfg-total" class="text-xs text-slate-500"></span>
+        </div>
+      </div>
+
+      <div id="loading" class="hidden text-sm text-slate-600 mb-3"><span class="spinner inline-block mr-2"></span><span data-i18n="mock_loading">正在生成测试…</span></div>
       <div id="test-box" class="hidden">
         <div id="meta" class="text-xs text-slate-500 mb-2"></div>
         <div id="q-list" class="flex flex-col gap-4"></div>
-        <div class="mt-4 flex items-center gap-3">
+        <div class="mt-4 flex flex-wrap items-center gap-3">
           <button id="btn-submit" class="bg-emerald-600 text-white px-4 py-2 rounded text-sm" data-i18n="mock_submit">提交评分</button>
+          <button id="btn-export-md" class="border text-slate-700 px-3 py-2 rounded text-sm" data-i18n="mock_export_md">导出 .md</button>
+          <button id="btn-export-txt" class="border text-slate-700 px-3 py-2 rounded text-sm" data-i18n="mock_export_txt">导出 .txt</button>
+          <button id="btn-print" class="border text-slate-700 px-3 py-2 rounded text-sm" data-i18n="mock_export_print">打印 / PDF</button>
           <div id="score" class="text-sm text-slate-700"></div>
         </div>
       </div>
@@ -35,41 +88,108 @@
       function t(k){ return window.__i18n__?__i18n__.t(k):k; }
 
       const lang = qs('lang') || 'zh';
-      const length = qs('length') || 'short';
+
+      // Total & diff-warn display
+      function getTypeCounts(){
+        return {
+          single: Math.max(0, parseInt(document.getElementById('cfg-single').value)||0),
+          tf: Math.max(0, parseInt(document.getElementById('cfg-tf').value)||0),
+          fill: Math.max(0, parseInt(document.getElementById('cfg-fill').value)||0),
+          short: Math.max(0, parseInt(document.getElementById('cfg-short').value)||0),
+        };
+      }
+      function getDiffCounts(){
+        return {
+          easy: Math.max(0, parseInt(document.getElementById('cfg-easy').value)||0),
+          medium: Math.max(0, parseInt(document.getElementById('cfg-medium').value)||0),
+          hard: Math.max(0, parseInt(document.getElementById('cfg-hard').value)||0),
+          competition: Math.max(0, parseInt(document.getElementById('cfg-competition').value)||0),
+        };
+      }
+      function updateTotal(){
+        const tc = getTypeCounts();
+        const dc = getDiffCounts();
+        const typeTotal = tc.single + tc.tf + tc.fill + tc.short;
+        const diffTotal = dc.easy + dc.medium + dc.hard + dc.competition;
+        document.getElementById('cfg-total').textContent = (lang.startsWith('en') ? 'Total: ' : '总计：') + typeTotal;
+        const warn = document.getElementById('diff-warn');
+        if(diffTotal > 0 && diffTotal !== typeTotal){
+          warn.textContent = lang.startsWith('en')
+            ? `Difficulty total (${diffTotal}) ≠ question total (${typeTotal}). Will be auto-scaled.`
+            : `难度总计（${diffTotal}）≠ 题目总计（${typeTotal}），将自动按比例调整。`;
+          warn.classList.remove('hidden');
+        } else {
+          warn.classList.add('hidden');
+        }
+      }
+      ['cfg-single','cfg-tf','cfg-fill','cfg-short','cfg-easy','cfg-medium','cfg-hard','cfg-competition'].forEach(id=>{
+        document.getElementById(id).addEventListener('input', updateTotal);
+      });
+
+      // Review text
+      let reviewText = '';
+      try{ reviewText = sessionStorage.getItem('review_text') || ''; }catch(_){ }
+
+      document.addEventListener('DOMContentLoaded', function(){
+        updateTotal();
+        if(!(reviewText||'').trim()){
+          document.getElementById('config-panel').classList.add('hidden');
+          document.getElementById('empty').classList.remove('hidden');
+        }
+      });
+
+      document.getElementById('btn-gen').addEventListener('click', function(){ loadTest(); });
 
       async function loadTest(){
-  // Always prefer current on-screen review sheet passed via sessionStorage
-  let text = '';
-  try{ text = sessionStorage.getItem('review_text') || ''; }catch(_){ }
-  if(!(text||'').trim()){ document.getElementById('loading').classList.add('hidden'); document.getElementById('empty').classList.remove('hidden'); return; }
-  const body = { text, lang, length };
+        if(!(reviewText||'').trim()){ document.getElementById('empty').classList.remove('hidden'); return; }
+        const typeCounts = getTypeCounts();
+        const diffCounts = getDiffCounts();
+        const total = typeCounts.single + typeCounts.tf + typeCounts.fill + typeCounts.short;
+        if(total <= 0){ return; }
+
+        document.getElementById('config-panel').classList.add('hidden');
+        document.getElementById('test-box').classList.add('hidden');
+        document.getElementById('loading').classList.remove('hidden');
+        document.getElementById('score').textContent = '';
+
+        const body = { text: reviewText, lang, type_counts: typeCounts, diff_counts: diffCounts };
         try{
-          const r = await apiFetch('/test/generate', { method:'POST', headers: { ...authHeaders({ 'Content-Type':'application/json' }) }, body: JSON.stringify(body) });
+          const r = await apiFetch('/test/generate', { method:'POST', headers: { ...authHeaders({ 'Content-Type':'application/json' }) }, body: JSON.stringify(body) }, {timeout: 180000});
           const j = await r.json();
           document.getElementById('loading').classList.add('hidden');
-          if(!(j && j.ok)) { document.getElementById('empty').classList.remove('hidden'); return; }
+          if(!(j && j.ok)) { document.getElementById('config-panel').classList.remove('hidden'); document.getElementById('empty').classList.remove('hidden'); return; }
           renderTest(j.items, j.meta||{});
-        }catch(e){ document.getElementById('loading').classList.add('hidden'); document.getElementById('empty').classList.remove('hidden'); }
+        }catch(e){
+          document.getElementById('loading').classList.add('hidden');
+          document.getElementById('config-panel').classList.remove('hidden');
+        }
       }
+
+      const DIFF_COLORS = {easy:'bg-emerald-100 text-emerald-800', medium:'bg-amber-100 text-amber-800', hard:'bg-red-100 text-red-800', competition:'bg-purple-100 text-purple-800'};
+      const DIFF_LABELS_ZH = {easy:'简单', medium:'中等', hard:'困难', competition:'竞赛'};
+      const DIFF_LABELS_EN = {easy:'Easy', medium:'Medium', hard:'Hard', competition:'Competition'};
 
       function renderTest(items, meta){
         const box = document.getElementById('test-box'); box.classList.remove('hidden');
         const m = document.getElementById('meta');
-        try{ m.textContent = `Target ${meta.target_total||items.length}; Types: ${JSON.stringify(meta.target_types||{})}`; }catch(_){ }
+        try{ m.textContent = (lang.startsWith('en')?'Questions: ':'题目数：') + items.length; }catch(_){ }
         const list = document.getElementById('q-list'); list.innerHTML='';
         window.__mockItems = items;
         items.forEach((q, idx)=>{
           const wrap = document.createElement('div');
           wrap.className = 'p-3 bg-white rounded border';
-          const tag = q.type==='single'? t('mock_type_single') : q.type==='tf'? t('mock_type_tf') : t('mock_type_short');
+          const typeLabels = {single: t('mock_type_single'), tf: t('mock_type_tf'), fill: t('mock_type_fill'), short: t('mock_type_short')};
+          const tag = typeLabels[q.type] || q.type;
           const diff = q.difficulty || 'medium';
-          const head = document.createElement('div'); head.className='text-sm mb-2'; head.innerHTML = `<span class="inline-block px-2 py-0.5 text-[11px] rounded bg-slate-100 text-slate-700 mr-2">${tag}</span><span class="inline-block px-2 py-0.5 text-[11px] rounded bg-slate-100 text-slate-700">${diff}</span>`;
+          const diffLabel = lang.startsWith('en') ? (DIFF_LABELS_EN[diff]||diff) : (DIFF_LABELS_ZH[diff]||diff);
+          const diffColor = DIFF_COLORS[diff] || 'bg-slate-100 text-slate-700';
+          const head = document.createElement('div'); head.className='text-sm mb-2';
+          head.innerHTML = `<span class="inline-block px-2 py-0.5 text-[11px] rounded bg-slate-100 text-slate-700 mr-2">${tag}</span><span class="inline-block px-2 py-0.5 text-[11px] rounded ${diffColor}">${diffLabel}</span>`;
           const stem = document.createElement('div'); stem.className='font-medium mb-2'; stem.textContent = `${idx+1}. ${q.stem}`;
           wrap.appendChild(head); wrap.appendChild(stem);
           if(q.type==='single'){
             const ul = document.createElement('div'); ul.className='flex flex-col gap-1';
             (q.choices||[]).forEach((ch,i)=>{
-              const id = `q_${q.id}_opt_${i}`;
               const row = document.createElement('label'); row.className='flex items-center gap-2 text-sm';
               row.innerHTML = `<input type="radio" name="q_${q.id}" value="${i}" class="scale-90"> <span>${String.fromCharCode(65+i)}. ${ch}</span>`;
               ul.appendChild(row);
@@ -79,11 +199,16 @@
             g.innerHTML = `<label class="flex items-center gap-1"><input type="radio" name="q_${q.id}" value="true" class="scale-90"> ${lang.startsWith('en')?'True':'正确'}</label>
                            <label class="flex items-center gap-1"><input type="radio" name="q_${q.id}" value="false" class="scale-90"> ${lang.startsWith('en')?'False':'错误'}</label>`;
             wrap.appendChild(g);
+          } else if(q.type==='fill'){
+            const ta = document.createElement('input'); ta.type='text'; ta.className='w-full border rounded px-2 py-1.5 text-sm'; ta.name = `q_${q.id}`;
+            ta.placeholder = lang.startsWith('en') ? 'Fill in the blank (use | for multiple blanks)' : '填入答案（多个空用 | 分隔）';
+            wrap.appendChild(ta);
           } else {
             const ta = document.createElement('textarea'); ta.className='w-full border rounded p-2 text-sm'; ta.rows=3; ta.name = `q_${q.id}`; wrap.appendChild(ta);
           }
+          const refAnswer = (q.type==='single') ? (q.choices[q.answer]||'') : (q.type==='tf'? (q.answer? (lang.startsWith('en')?'True':'正确'):(lang.startsWith('en')?'False':'错误')) : (q.answer||''));
           const exp = document.createElement('div'); exp.className='mt-2 text-xs text-slate-600 hidden'; exp.dataset.role='explain';
-          exp.innerHTML = `<span class="font-semibold">${t('mock_reference')}:</span> <span>${(q.type==='single')? (q.choices[q.answer]||'') : (q.type==='tf'? (q.answer? (lang.startsWith('en')?'True':'正确'):(lang.startsWith('en')?'False':'错误')) : (q.answer||''))}</span><div>${q.explanation||''}</div>`;
+          exp.innerHTML = `<span class="font-semibold">${t('mock_reference')}:</span> <span>${refAnswer}</span><div>${q.explanation||''}</div>`;
           wrap.appendChild(exp);
           list.appendChild(wrap);
         });
@@ -94,25 +219,29 @@
         const answers = {};
         items.forEach(q=>{
           if(q.type==='single' || q.type==='tf'){
-            const sel = document.querySelector(`input[name=\"q_${q.id}\"]:checked`);
+            const sel = document.querySelector(`input[name="q_${q.id}"]:checked`);
             answers[q.id] = sel ? sel.value : '';
+          } else if(q.type==='fill'){
+            const inp = document.querySelector(`input[name="q_${q.id}"]`);
+            answers[q.id] = (inp && inp.value) ? inp.value.trim() : '';
           } else {
-            const ta = document.querySelector(`textarea[name=\"q_${q.id}\"]`);
+            const ta = document.querySelector(`textarea[name="q_${q.id}"]`);
             answers[q.id] = (ta && ta.value) ? ta.value.trim() : '';
           }
         });
         const review = (sessionStorage.getItem('review_text')||'').toString();
         const body = { items, answers, lang, review_text: review };
         try{
-          const r = await apiFetch('/test/score', { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeaders() }, body: JSON.stringify(body) });
+          const r = await apiFetch('/test/score', { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeaders() }, body: JSON.stringify(body) }, {timeout: 120000});
           const j = await r.json();
           if(!(j && j.ok)) throw new Error('score_failed');
           const res = j.results || [];
           const map = new Map(res.map(x=>[x.id, x]));
           let correct = 0;
           items.forEach(q=>{
-            const row = document.querySelector(`textarea[name=\"q_${q.id}\"]`)?.closest('.border') || document.querySelector(`input[name=\"q_${q.id}\"]`)?.closest('.border');
-            const exp = row ? row.querySelector('[data-role=\"explain\"]') : null;
+            const row = document.querySelector(`textarea[name="q_${q.id}"]`)?.closest('.border')
+              || document.querySelector(`input[name="q_${q.id}"]`)?.closest('.border');
+            const exp = row ? row.querySelector('[data-role="explain"]') : null;
             const rr = map.get(q.id);
             if(rr && rr.correct){ correct++; if(row){ row.classList.remove('border-red-300'); row.classList.add('border-emerald-300'); } }
             else if(row){ row.classList.remove('border-emerald-300'); row.classList.add('border-red-300'); }
@@ -132,7 +261,73 @@
         }
       }
 
-      document.addEventListener('DOMContentLoaded', loadTest);
+      // ── Export ────────────────────────────────
+      function buildExportText(fmt){
+        const items = window.__mockItems;
+        if(!items || !items.length) return '';
+        const isEn = lang.startsWith('en');
+        const isMd = (fmt === 'md');
+        const typeLabels = {single: t('mock_type_single'), tf: t('mock_type_tf'), fill: t('mock_type_fill'), short: t('mock_type_short')};
+        const diffLabels = isEn ? DIFF_LABELS_EN : DIFF_LABELS_ZH;
+        let lines = [];
+        lines.push(isMd ? '# ' + t('mock_test') : t('mock_test'));
+        lines.push('');
+        // Questions section
+        lines.push(isMd ? '## ' + (isEn ? 'Questions' : '试题') : (isEn ? '=== Questions ===' : '=== 试题 ==='));
+        lines.push('');
+        items.forEach((q, idx)=>{
+          const prefix = `${idx+1}. `;
+          const badge = `[${typeLabels[q.type]||q.type}] [${diffLabels[q.difficulty]||q.difficulty}]`;
+          lines.push(prefix + badge);
+          lines.push(q.stem);
+          if(q.type==='single' && q.choices){
+            q.choices.forEach((ch, i)=>{
+              lines.push(`   ${String.fromCharCode(65+i)}. ${ch}`);
+            });
+          } else if(q.type==='tf'){
+            lines.push(isEn ? '   ( ) True   ( ) False' : '   ( ) 正确   ( ) 错误');
+          } else if(q.type==='fill'){
+            lines.push(isEn ? '   Answer: ____________' : '   答案：____________');
+          } else {
+            lines.push('');
+          }
+          lines.push('');
+        });
+        // Answers section
+        lines.push(isMd ? '## ' + (isEn ? 'Answer Key' : '参考答案') : (isEn ? '=== Answer Key ===' : '=== 参考答案 ==='));
+        lines.push('');
+        items.forEach((q, idx)=>{
+          let ans = '';
+          if(q.type==='single') ans = String.fromCharCode(65 + (q.answer||0)) + '. ' + (q.choices[q.answer]||'');
+          else if(q.type==='tf') ans = q.answer ? (isEn?'True':'正确') : (isEn?'False':'错误');
+          else ans = q.answer || '';
+          lines.push(`${idx+1}. ${ans}`);
+          if(q.explanation) lines.push(`   ${isEn?'Explanation':'解析'}: ${q.explanation}`);
+          lines.push('');
+        });
+        return lines.join('\n');
+      }
+
+      function downloadFile(filename, content){
+        const blob = new Blob([content], {type:'text/plain;charset=utf-8'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+
+      document.getElementById('btn-export-md').addEventListener('click', function(){
+        const txt = buildExportText('md');
+        if(txt) downloadFile('mocktest.md', txt);
+      });
+      document.getElementById('btn-export-txt').addEventListener('click', function(){
+        const txt = buildExportText('txt');
+        if(txt) downloadFile('mocktest.txt', txt);
+      });
+      document.getElementById('btn-print').addEventListener('click', function(){
+        window.print();
+      });
     </script>
   </body>
 </html>

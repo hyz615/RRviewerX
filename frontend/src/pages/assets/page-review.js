@@ -773,14 +773,17 @@ document.addEventListener('DOMContentLoaded', async function () {
       window.showToast('error', t('request_failed'));
     }
   });
-  mockTestLink.addEventListener('click', function () {
+  mockTestLink.addEventListener('click', function (e) {
     const review = window.RRState.getCurrentReview();
     if (!review || !review.text) {
+      e.preventDefault();
       return;
     }
     try {
       sessionStorage.setItem('review_text', review.text);
     } catch (_) {}
+    var lang = (document.documentElement.lang || '').toLowerCase().indexOf('en') === 0 ? 'en' : 'zh';
+    mockTestLink.href = 'mocktest.html?lang=' + lang;
   });
   document.addEventListener('rr:langchange', function () {
     syncModeUI();

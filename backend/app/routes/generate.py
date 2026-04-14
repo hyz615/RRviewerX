@@ -1,4 +1,5 @@
 import asyncio
+import re
 import threading
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import StreamingResponse
@@ -239,6 +240,24 @@ def _build_generation_context(
     return prefix + ":\n- " + "\n- ".join(lines) + "\n\n" + text
 
 
+_MIN_CONTENT_CHARS = 50
+
+
+def _check_content_sufficiency(text: str, lang: str = "zh") -> str | None:
+    """Return an error message if the text is insufficient for generation, else None."""
+    stripped = text.strip()
+    # Remove pure whitespace / punctuation / digits to measure real content
+    meaningful = re.sub(r'[\s\d\W]+', '', stripped)
+    if len(meaningful) < _MIN_CONTENT_CHARS:
+        if (lang or "").lower().startswith("en"):
+            return (
+                "Insufficient content for generation. "
+                "Please provide more study material (notes, textbook chapters, etc.) before generating."
+            )
+        return "内容不足以生成复习资料，请先上传或选择更多学习材料（笔记、教材章节等）后再尝试生成。"
+    return None
+
+
 class GenerateRequest(BaseModel):
     source_id: str | None = None
     source_ids: List[str] | None = None
@@ -284,6 +303,9 @@ async def generate(
         return {"ok": False, "error": "Selected chapters are not available in the course textbook"}
     if not text:
         return {"ok": False, "error": "Empty text"}
+    insufficiency_error = _check_content_sufficiency(text, payload.lang or "zh")
+    if insufficiency_error:
+        return {"ok": False, "error": insufficiency_error}
 
     if first_meta is not None:
         if not subject_code:
@@ -455,6 +477,12 @@ async def generate_stream(
             yield _sse_event("error", "Empty text")
             yield _sse_event("done", "")
         return StreamingResponse(_empty(), media_type="text/event-stream")
+    insufficiency_error = _check_content_sufficiency(text, payload.lang or "zh")
+    if insufficiency_error:
+        async def _insufficient():
+            yield _sse_event("error", insufficiency_error)
+            yield _sse_event("done", "")
+        return StreamingResponse(_insufficient(), media_type="text/event-stream")
 
     lang = (payload.lang or 'zh')
     if first_meta is not None:

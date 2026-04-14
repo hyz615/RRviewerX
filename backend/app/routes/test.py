@@ -10,15 +10,35 @@ from ..services.agent_service import llm
 router = APIRouter()
 
 
-Difficulty = Literal["easy", "medium", "hard"]
-QType = Literal["single", "tf", "short"]
+Difficulty = Literal["easy", "medium", "hard", "competition"]
+QType = Literal["single", "tf", "fill", "short"]
+
+ALL_DIFFICULTIES = ("easy", "medium", "hard", "competition")
+ALL_QTYPES = ("single", "tf", "fill", "short")
+
+
+class TypeCounts(BaseModel):
+    single: int = 0
+    tf: int = 0
+    fill: int = 0
+    short: int = 0
+
+
+class DiffCounts(BaseModel):
+    easy: int = 0
+    medium: int = 0
+    hard: int = 0
+    competition: int = 0
 
 
 class TestGenerateRequest(BaseModel):
     review_sheet_id: Optional[int] = None
     text: Optional[str] = None
     lang: Optional[str] = None  # 'zh' | 'en'
-    length: Literal["short", "medium", "long"] = "short"  # maps to total count
+    length: Literal["short", "medium", "long"] = "short"  # maps to total count (fallback)
+    type_counts: Optional[TypeCounts] = None  # custom per-type counts
+    difficulty: Optional[str] = None  # legacy: single difficulty or "mixed" (ignored if diff_counts set)
+    diff_counts: Optional[DiffCounts] = None  # custom per-difficulty counts
 
 
 class TestQuestion(BaseModel):
@@ -27,7 +47,7 @@ class TestQuestion(BaseModel):
     difficulty: Difficulty
     stem: str
     choices: Optional[List[str]] = None  # for single
-    answer: Any  # index for single; bool for tf; str for short
+    answer: Any  # index for single; bool for tf; str for short/fill
     explanation: Optional[str] = None
 
 
@@ -56,24 +76,58 @@ def generate_test(payload: TestGenerateRequest, _ctx=Depends(require_auth_or_tri
         return {"ok": False, "error": "Empty text"}
 
     is_en = (payload.lang or "zh").lower().startswith("en")
-    # totals
-    total = 10 if payload.length == "short" else (20 if payload.length == "medium" else 50)
-    # type ratio 5:3:2 => single, tf, short
-    type_counts = _alloc_counts(total, [5, 3, 2])
-    # difficulty ratio 5:3:2 inside each type to ensure global mix
-    def diff_counts(n: int) -> List[int]:
-        return _alloc_counts(n, [5, 3, 2])  # easy, medium, hard
+
+    # Resolve per-type counts
+    if payload.type_counts:
+        tc = payload.type_counts
+        t_single = max(0, tc.single)
+        t_tf = max(0, tc.tf)
+        t_fill = max(0, tc.fill)
+        t_short = max(0, tc.short)
+    else:
+        fallback_total = 10 if payload.length == "short" else (20 if payload.length == "medium" else 50)
+        alloc = _alloc_counts(fallback_total, [5, 3, 0, 2])  # single, tf, fill, short
+        t_single, t_tf, t_fill, t_short = alloc
+
+    total = t_single + t_tf + t_fill + t_short
+    if total <= 0:
+        return {"ok": False, "error": "Total question count must be > 0"}
+    if total > 80:
+        return {"ok": False, "error": "Maximum 80 questions"}
+
+    # Difficulty distribution
+    if payload.diff_counts:
+        dc = payload.diff_counts
+        d_easy = max(0, dc.easy)
+        d_medium = max(0, dc.medium)
+        d_hard = max(0, dc.hard)
+        d_competition = max(0, dc.competition)
+        diff_total = d_easy + d_medium + d_hard + d_competition
+        if diff_total != total:
+            # Scale to match total
+            if diff_total > 0:
+                d_easy, d_medium, d_hard, d_competition = _alloc_counts(total, [d_easy, d_medium, d_hard, d_competition])
+            else:
+                d_easy, d_medium, d_hard, d_competition = _alloc_counts(total, [4, 3, 2, 1])
+        diff_spec = {"easy": d_easy, "medium": d_medium, "hard": d_hard, "competition": d_competition}
+    else:
+        raw_diff = (payload.difficulty or "mixed").strip().lower()
+        if raw_diff in ALL_DIFFICULTIES:
+            diff_spec = {d: (total if d == raw_diff else 0) for d in ALL_DIFFICULTIES}
+        else:
+            d_easy, d_medium, d_hard, d_competition = _alloc_counts(total, [4, 3, 2, 1])
+            diff_spec = {"easy": d_easy, "medium": d_medium, "hard": d_hard, "competition": d_competition}
 
     # Build strict JSON prompt
     schema = {
         "questions": [
             {
                 "id": 1,
-                "type": "single|tf|short",
-                "difficulty": "easy|medium|hard",
+                "type": "single|tf|fill|short",
+                "difficulty": "easy|medium|hard|competition",
                 "stem": "question text",
                 "choices": ["A", "B", "C", "D"],
-                "answer": "index(for single) | true/false(for tf) | text(for short)",
+                "answer": "index(for single) | true/false(for tf) | text(for fill/short)",
                 "explanation": "why this is correct (concise)"
             }
         ]
@@ -85,65 +139,77 @@ def generate_test(payload: TestGenerateRequest, _ctx=Depends(require_auth_or_tri
         "你是一名命题老师。只输出严格有效的 JSON，必须符合请求的结构，严禁添加任何额外文本。"
     )
 
-    def make_block(label: str, count: int, t: QType) -> str:
-        e, m, h = diff_counts(count)
+    def make_block(label: str, count: int) -> str:
+        if count <= 0:
+            return ""
         if is_en:
-            return (
-                f"Type: {label} | Count: {count} | Difficulty split (easy/medium/hard): {e}/{m}/{h}. "
-                "Mix the difficulties naturally."
-            )
+            return f"Type: {label} | Count: {count}."
         else:
-            return (
-                f"题型：{label} ｜ 数量：{count} ｜ 难度分配（易/中/难）：{e}/{m}/{h}。在该题型中自然混合难度。"
-            )
+            return f"题型：{label} ｜ 数量：{count}。"
 
     instr = []
+    type_names_en = {"single": "single-choice", "tf": "true/false", "fill": "fill-in-the-blank", "short": "short-answer"}
+    type_names_zh = {"single": "单选题", "tf": "判断题", "fill": "填空题", "short": "解答题"}
+
     if is_en:
         instr.append(
-            "Create a mixed test based on the review sheet. Respect BOTH constraints: (1) question type ratio single:tf:short = 5:3:2; (2) difficulty ratio easy:medium:hard = 5:3:2 across the entire test."
+            "Create a test based on the review sheet. Respect the exact type counts specified below."
         )
-        instr.append("Question types: single-choice (4 options, exactly 1 correct), true/false, short answer.")
+        instr.append("Question types: single-choice (4 options, exactly 1 correct), true/false, fill-in-the-blank, short answer.")
         instr.append("Return JSON with key 'questions' only. Each question requires: id, type, difficulty, stem, choices (for single), answer, explanation.")
         instr.append("For single-choice: provide 4 plausible options in 'choices'; 'answer' is the 0-based index of the correct option.")
         instr.append("For true/false: 'answer' is true or false.")
+        instr.append("For fill-in-the-blank: stem should contain one or more blanks marked as '____'; 'answer' is the correct text to fill in (if multiple blanks, separate with ' | ').")
         instr.append("For short answer: 'answer' is a concise reference answer. Keep explanation short.")
-        # Difficulty calibration to sheet level
         instr.append("Calibrate difficulty to the review sheet's level: avoid trivial copy-and-paste recall and avoid out-of-scope advanced puzzles.")
         instr.append(
-            "Anchor definitions: easy = direct recall/definition from the sheet; medium = example-driven application of ONE concept (you may propose a new scenario/example not verbatim in the sheet, but solvable entirely by the sheet); hard = slightly beyond the sheet: multi-concept integration or minor extension that pushes thinking just past the sheet while still strongly tied to it (avoid requiring outside specialized knowledge)."
+            "Anchor definitions: easy = direct recall/definition from the sheet; medium = example-driven application of ONE concept; "
+            "hard = multi-concept integration or minor extension; competition = challenging problems requiring creative thinking, "
+            "multi-step reasoning, or combining concepts in non-obvious ways — these should push beyond the sheet while remaining grounded in its topics."
         )
         instr.append(
             "All questions must be answerable using ONLY the given review sheet; explanations should briefly reference the relevant term/formula or section title from the sheet."
         )
     else:
         instr.append(
-            "基于复习单生成混合模拟测试。需同时满足：(1) 题型比例 单选:判断:文字 = 5:3:2；(2) 难度比例 易:中:难 = 5:3:2（在整套题中混合）。"
+            "基于复习单生成模拟测试。请严格按照下方指定的各题型数量出题。"
         )
-        instr.append("题型定义：单选题（4个选项，且仅1个正确）、判断题（是/否）、文字题（简答题）。")
+        instr.append("题型定义：单选题（4个选项，且仅1个正确）、判断题（是/否）、填空题、解答题。")
         instr.append("仅返回包含 'questions' 键的 JSON。每题包含：id、type、difficulty、stem、choices（仅单选）、answer、explanation。")
         instr.append("单选题：提供4个具有迷惑性的选项；answer 为正确选项的 0 基索引。")
         instr.append("判断题：answer 为 true 或 false。")
-        instr.append("文字题：answer 为精炼参考答案；explanation 简短说明。")
-        # 难度与复习单匹配
+        instr.append("填空题：题干中用 '____' 标记空白处；answer 为应填入的正确文本（若多个空，用 ' | ' 分隔）。")
+        instr.append("解答题：answer 为精炼参考答案；explanation 简短说明。")
         instr.append("难度需与复习单的技术深度相匹配：避免过于浅显的照抄回忆题，也避免超纲过难的题目。")
         instr.append(
-            "难度锚点：易 = 基本概念/定义直接回忆；中 = 以示例/情境驱动的单一概念应用（可使用复习单未逐字出现的新例子，但完全可依复习单知识求解）；难 = 略微超出复习单表层：多概念组合或小幅延伸，促使思考略跨一步，但仍与复习单强关联（不可依赖额外的专业外部知识）。"
+            "难度锚点：简单 = 基本概念/定义直接回忆；中等 = 以示例/情境驱动的单一概念应用；"
+            "困难 = 多概念组合或小幅延伸；竞赛 = 需要创造性思维、多步推导或以非显而易见的方式整合概念的挑战性问题——应超越复习单表层，但仍以其主题为根基。"
         )
         instr.append("所有题目必须仅依赖给定复习单即可作答；解析中请简要引用相关的术语/公式或小节标题以作依据。")
 
-    t_single, t_tf, t_short = type_counts
-    blocks = [
-        make_block("单选题" if not is_en else "single-choice", t_single, "single"),
-        make_block("判断题" if not is_en else "true/false", t_tf, "tf"),
-        make_block("文字题" if not is_en else "short-answer", t_short, "short"),
-    ]
+    blocks = []
+    for qtype, count in [("single", t_single), ("tf", t_tf), ("fill", t_fill), ("short", t_short)]:
+        if count > 0:
+            label = type_names_en[qtype] if is_en else type_names_zh[qtype]
+            blocks.append(make_block(label, count))
 
     user = (
         ("Review sheet (excerpt):\n" + text[:12000] + "\n\n") if is_en else ("复习提要（摘录）：\n" + text[:12000] + "\n\n")
     )
     user += ("Total questions: " + str(total) + "\n") if is_en else ("总题数：" + str(total) + "\n")
     user += "\n".join(instr) + "\n\n"
-    user += ("Type blocks:\n" if is_en else "题型分配：\n") + "\n".join([f"- {b}" for b in blocks]) + "\n\n"
+    user += ("Type blocks:\n" if is_en else "题型分配：\n") + "\n".join([f"- {b}" for b in blocks if b]) + "\n\n"
+    # Difficulty distribution instruction
+    diff_zh_map = {"easy": "简单", "medium": "中等", "hard": "困难", "competition": "竞赛"}
+    if is_en:
+        diff_line = "Difficulty distribution across the entire test: " + ", ".join(
+            f"{d}: {diff_spec[d]}" for d in ALL_DIFFICULTIES if diff_spec[d] > 0
+        ) + ". Ensure each question is tagged with the correct difficulty."
+    else:
+        diff_line = "整套试卷的难度分配：" + "、".join(
+            f"{diff_zh_map[d]}：{diff_spec[d]}题" for d in ALL_DIFFICULTIES if diff_spec[d] > 0
+        ) + "。请确保每题标注正确的难度。"
+    user += diff_line + "\n\n"
     user += ("Output schema example (JSON only, keys in English):\n" if is_en else "输出结构示例（仅 JSON，键名使用英文）：\n")
     import json as _json
     user += _json.dumps(schema, ensure_ascii=False)
@@ -157,10 +223,8 @@ def generate_test(payload: TestGenerateRequest, _ctx=Depends(require_auth_or_tri
     import json
     data: Dict[str, Any] = {}
     try:
-        # Try direct
         data = json.loads(content)
     except Exception:
-        # Fallback: extract JSON substring
         import re
         m = re.search(r"\{[\s\S]*\}$", content.strip())
         if m:
@@ -176,10 +240,10 @@ def generate_test(payload: TestGenerateRequest, _ctx=Depends(require_auth_or_tri
     for q in data["questions"]:
         try:
             qtype = str(q.get("type", "")).lower()
-            if qtype not in ("single", "tf", "short"):
+            if qtype not in ALL_QTYPES:
                 continue
             diff = str(q.get("difficulty", "")).lower()
-            if diff not in ("easy", "medium", "hard"):
+            if diff not in ALL_DIFFICULTIES:
                 diff = "medium"
             stem = str(q.get("stem", "")).strip()
             if not stem:
@@ -207,6 +271,8 @@ def generate_test(payload: TestGenerateRequest, _ctx=Depends(require_auth_or_tri
             elif qtype == "tf":
                 ans = q.get("answer")
                 item["answer"] = bool(ans)
+            elif qtype == "fill":
+                item["answer"] = str(q.get("answer") or "").strip()[:800]
             else:  # short
                 item["answer"] = str(q.get("answer") or "").strip()[:800]
             questions.append(item)
@@ -214,25 +280,19 @@ def generate_test(payload: TestGenerateRequest, _ctx=Depends(require_auth_or_tri
         except Exception:
             continue
 
-    # If counts deviate too much, trim/pad heuristically
     # Trim to total
     if len(questions) > total:
         questions = questions[:total]
-    # Basic guarantee: ensure at least 1 per type when expected >0
     from collections import defaultdict
     cnt_by_type = defaultdict(int)
     for q in questions:
         cnt_by_type[q["type"]] += 1
-    need = {
-        "single": type_counts[0],
-        "tf": type_counts[1],
-        "short": type_counts[2],
-    }
-    # No complex rebalancing; just report meta
+    need = {"single": t_single, "tf": t_tf, "fill": t_fill, "short": t_short}
     meta = {
         "target_total": total,
-        "target_types": {"single": need["single"], "tf": need["tf"], "short": need["short"]},
-        "actual_types": cnt_by_type,
+        "target_types": need,
+        "actual_types": dict(cnt_by_type),
+        "diff_spec": diff_spec,
     }
     return {"ok": True, "items": questions, "meta": meta}
 
@@ -260,7 +320,7 @@ def score_test(payload: ScoreRequest):
     shorts: List[TestQuestion] = []
     short_user: Dict[int, str] = {}
     correct = 0
-    # Auto-grade single & tf; collect short
+    # Auto-grade single & tf; collect short/fill for LLM
     for it in payload.items:
         ans = norm_answers.get(it.id, None)
         if it.type == "single":
@@ -280,7 +340,6 @@ def score_test(payload: ScoreRequest):
             elif sval in ("false", "0", "no", "n", "f"):
                 u = False
             else:
-                # best effort cast
                 try:
                     u = bool(ans)
                 except Exception:
@@ -290,7 +349,7 @@ def score_test(payload: ScoreRequest):
                 correct += 1
             results.append({"id": it.id, "type": it.type, "correct": ok, "score": 1 if ok else 0})
         else:
-            # short answer -> LLM grading later
+            # fill / short answer -> LLM grading
             user_text = str(ans or "").strip()
             shorts.append(it)
             short_user[it.id] = user_text
